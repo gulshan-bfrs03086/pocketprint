@@ -11,12 +11,49 @@ android {
 
     defaultConfig {
         applicationId = "com.gulshan.pocketprint"
-        // Android 7.0 Nougat and up.
-        minSdk = 24
         targetSdk = 36
         versionCode = 1
         versionName = "1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    /**
+     * Two distributions of the same app.
+     *
+     * They are not a feature split: both build the identical code and print the
+     * identical bytes. The difference is entirely in what the package asks the
+     * system for, which is what decides whether it installs and what it prompts
+     * for on a given device.
+     */
+    flavorDimensions += "reach"
+    productFlavors {
+        /**
+         * Android 7.0 and up, for older and rugged hardware.
+         *
+         * Carries the pre-API-31 Bluetooth permissions, which drag in
+         * ACCESS_FINE_LOCATION, which in turn forces the location hardware
+         * features to be declared optional or the package will not install on a
+         * device without GPS.
+         */
+        create("legacy") {
+            dimension = "reach"
+            minSdk = 24
+            versionNameSuffix = "-legacy"
+        }
+
+        /**
+         * Android 12 and up.
+         *
+         * Asks for no location permission at all: BLUETOOTH_SCAN with
+         * neverForLocation covers discovery from API 31. Fewer permission
+         * prompts, no location access, and it cannot hit the required-feature
+         * install failure by construction.
+         */
+        create("modern") {
+            dimension = "reach"
+            minSdk = 31
+            versionNameSuffix = "-modern"
+        }
     }
 
     signingConfigs {

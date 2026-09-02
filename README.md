@@ -43,25 +43,59 @@ once under **Settings → Connected devices → Printing → PocketPrint**.
 
 **Share target.** "Share → Print with PocketPrint" from any app.
 
+## Two builds
+
+The app ships as two variants of the same code. They are **not** a feature
+split: both compile identically and emit identical bytes to the printer. What
+differs is what the package asks the system for, which is what decides whether
+it installs and what it prompts for.
+
+| | `legacy` | `modern` |
+|---|---|---|
+| Minimum Android | 7.0 (API 24) | 12 (API 31) |
+| Location permission | `ACCESS_FINE_LOCATION` (≤ API 30) | **none** |
+| Bluetooth permissions | legacy pair + split pair | split pair only |
+| Storage | `READ_EXTERNAL_STORAGE` (≤ API 32) | scoped only |
+| Required hardware features | none | none |
+
+Before API 31 there were no split Bluetooth permissions: scanning for a device
+needed `BLUETOOTH`/`BLUETOOTH_ADMIN` *and* the location permission, because a
+Bluetooth scan can reveal position. From API 31, `BLUETOOTH_SCAN` with
+`neverForLocation` replaces all of it — so the modern build asks for no location
+access whatsoever.
+
+That difference is not cosmetic. `ACCESS_FINE_LOCATION` makes the build tools
+imply `android.hardware.location` as a **required** feature, and the package
+manager then refuses to install on any device without a location provider. That
+is precisely how this app became uninstallable on a rugged barcode terminal,
+reporting only a generic "Can't install the app". The legacy flavour declares
+those features optional to compensate; the modern flavour cannot hit the problem
+at all.
+
+**Use `modern` unless you need to support a device older than Android 12.**
+
 ## Build
 
 ```bash
-JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home ./gradlew :app:assembleDebug
+export JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home
+
+./gradlew assembleModernDebug     # Android 12+
+./gradlew assembleLegacyDebug     # Android 7.0+
 ```
 
-Install to a connected phone:
+Install to a connected device:
 
 ```bash
-~/Library/Android/sdk/platform-tools/adb install -r app/build/outputs/apk/debug/app-debug.apk
+adb install -r app/build/outputs/apk/modern/debug/app-modern-debug.apk
 ```
 
-Run the tests:
+Run the tests (both variants):
 
 ```bash
-JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home ./gradlew :app:testDebugUnitTest
+./gradlew testLegacyDebugUnitTest testModernDebugUnitTest
 ```
 
-Check the APK will install anywhere (no required hardware features):
+Check every variant will install anywhere (no required hardware features):
 
 ```bash
 ./scripts/check-required-features.sh

@@ -8,25 +8,15 @@
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
 
-    <!-- Bluetooth thermal / label printers.
-         API 30 and below use the legacy permissions; 31+ use the split ones. -->
-    <uses-permission android:name="android.permission.BLUETOOTH"
-        android:maxSdkVersion="30" />
-    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN"
-        android:maxSdkVersion="30" />
+    <!-- Bluetooth thermal / label printers. The split permissions (API 31+) are
+         all this flavour needs; the legacy flavour adds the older ones. -->
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
-    <!-- neverForLocation lets the BLE scan run on 31+ without the location
-         permission; discovery is only ever used to find a printer. -->
+    <!-- neverForLocation lets the scan run without the location permission;
+         discovery is only ever used to find a printer. -->
     <uses-permission android:name="android.permission.BLUETOOTH_SCAN"
         android:usesPermissionFlags="neverForLocation"
         tools:targetApi="s" />
-    <!-- Pre-31 Bluetooth discovery is gated behind location. -->
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"
-        android:maxSdkVersion="30" />
 
-    <!-- Reading documents the user picks. Scoped storage handles Q+. -->
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
-        android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"
         tools:targetApi="tiramisu" />
 
@@ -43,17 +33,9 @@
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
     <uses-feature android:name="android.hardware.wifi" android:required="false" />
 
-    <!--
-      ACCESS_FINE_LOCATION (needed only for Bluetooth discovery before API 31)
-      makes the build tools imply android.hardware.location as a REQUIRED
-      feature. The package manager then refuses to install on any device with no
-      location provider - common on rugged barcode terminals - and the installer
-      reports only a generic "Can't install the app". None of these are needed
-      in order to print.
-    -->
-    <uses-feature android:name="android.hardware.location" android:required="false" />
-    <uses-feature android:name="android.hardware.location.gps" android:required="false" />
-    <uses-feature android:name="android.hardware.location.network" android:required="false" />
+    <!-- Nothing about printing needs hardware. Declaring these optional keeps
+         the package installable on devices that lack them - a rugged terminal
+         with no GPS, for instance. -->
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 

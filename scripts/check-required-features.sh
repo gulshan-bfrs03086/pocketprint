@@ -15,10 +15,16 @@
 # A printing app should require no hardware at all: every transport is optional.
 set -euo pipefail
 
-APK="${1:-app/build/outputs/apk/debug/app-debug.apk}"
+# Check every APK given, or every debug APK in the build output by default.
+if [[ $# -gt 0 ]]; then
+  APKS=("$@")
+else
+  # shellcheck disable=SC2207
+  APKS=($(find app/build/outputs/apk -name "*-debug.apk" 2>/dev/null | sort))
+fi
 
-if [[ ! -f "$APK" ]]; then
-  echo "check-required-features: no APK at $APK" >&2
+if [[ ${#APKS[@]} -eq 0 ]]; then
+  echo "check-required-features: no APKs found; build one first" >&2
   exit 1
 fi
 
@@ -30,20 +36,31 @@ if [[ -z "$AAPT2" ]]; then
   exit 1
 fi
 
-# `|| true` because grep exits 1 when it matches nothing, which is the good case.
-REQUIRED="$("$AAPT2" dump badging "$APK" | grep -E "^  uses-feature: name=" || true)"
+STATUS=0
+for APK in "${APKS[@]}"; do
+  if [[ ! -f "$APK" ]]; then
+    echo "check-required-features: no APK at $APK" >&2
+    STATUS=1
+    continue
+  fi
 
-if [[ -n "$REQUIRED" ]]; then
-  echo "FAIL: $APK declares required hardware features:" >&2
-  echo "$REQUIRED" >&2
-  echo >&2
-  echo "The package manager will refuse to install on any device lacking these." >&2
-  echo "Declare each one optional in AndroidManifest.xml:" >&2
-  echo '  <uses-feature android:name="NAME" android:required="false" />' >&2
-  echo >&2
-  echo "If a permission implied it, the implication is shown by:" >&2
-  echo "  $AAPT2 dump badging $APK | grep uses-implied-feature" >&2
-  exit 1
-fi
+  # `|| true` because grep exits 1 when it matches nothing, which is the good case.
+  REQUIRED="$("$AAPT2" dump badging "$APK" | grep -E "^  uses-feature: name=" || true)"
 
-echo "OK: $APK requires no hardware features."
+  if [[ -n "$REQUIRED" ]]; then
+    echo "FAIL: $APK declares required hardware features:" >&2
+    echo "$REQUIRED" >&2
+    echo >&2
+    echo "The package manager will refuse to install on any device lacking these." >&2
+    echo "Declare each one optional in the manifest for that flavour:" >&2
+    echo '  <uses-feature android:name="NAME" android:required="false" />' >&2
+    echo >&2
+    echo "To see which permission implied it:" >&2
+    echo "  $AAPT2 dump badging $APK | grep uses-implied-feature" >&2
+    STATUS=1
+  else
+    echo "OK: $(basename "$APK") requires no hardware features."
+  fi
+done
+
+exit $STATUS
