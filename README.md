@@ -11,6 +11,7 @@ No cloud service. No account. No telemetry. Everything happens on your device an
 ![Android 7.0+](https://img.shields.io/badge/Android-7.0%2B-3DDC84?logo=android&logoColor=white)
 ![Kotlin](https://img.shields.io/badge/Kotlin-2.2-7F52FF?logo=kotlin&logoColor=white)
 ![Compose](https://img.shields.io/badge/Jetpack%20Compose-Material%203-4285F4)
+[![License](https://img.shields.io/badge/License-Apache%202.0-D22128)](LICENSE)
 
 <p>
   <img src="docs/screenshots/01-setup.png" width="30%" alt="One-tap printer setup" />
@@ -174,6 +175,18 @@ yet. Printers lie about their capabilities in inventive ways, so expect to corre
 two per model — there's a printer-settings screen for exactly that, with a test-page button.
 
 Known gaps are tracked as [open issues](https://github.com/gulshan-bfrs03086/pocketprint/issues).
+
+## License
+
+[Apache License 2.0](LICENSE) — permissive: use it, fork it, ship it commercially,
+closed-source if you like.
+
+Apache rather than MIT because this implements several vendor-controlled command
+languages (ZPL, ESC/POS, PCL, TSPL). Apache-2.0 adds an express patent grant and
+patent-retaliation clause that MIT is silent on, and states explicitly that no
+trademark rights are granted — so "this code speaks ZPL" stays clearly separate
+from any suggestion of endorsement by Zebra, Epson, HP or TSC. Those names are
+their owners' trademarks and are used here only to identify the protocols.
 
 ## Contributing
 
