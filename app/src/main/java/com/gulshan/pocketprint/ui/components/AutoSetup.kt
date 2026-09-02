@@ -197,12 +197,37 @@ fun AutoSetupDialog(
                 }
 
                 if (succeeded) {
+                    // These two symptoms have different causes, and saying only
+                    // "change the language" for both sends people hunting through
+                    // dialects when the real answer is usually the paper. A
+                    // printer cannot detect the wrong stock: it reports paper
+                    // loaded and head down, and feeds a blank label quite happily.
                     Text(
-                        "If the test label came out garbled or blank, open the " +
-                            "printer's settings and change the command language.",
+                        "Nothing on the label, but it fed through?",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                    Text(
+                        "That is the paper, not the printing. Thermal printers " +
+                            "mark only heat-sensitive stock, on one side. Check you " +
+                            "are using thermal labels and that the roll is not in " +
+                            "upside down. The printer cannot tell, so it reports " +
+                            "everything as fine.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                    Text(
+                        "Stray characters or pages of commands instead?",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                    Text(
+                        "That one is the command language. Open the printer's " +
+                            "settings and change it.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }

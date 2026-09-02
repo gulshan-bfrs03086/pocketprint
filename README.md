@@ -75,6 +75,19 @@ The setup flow pairs, connects, probes for the language, works out the label siz
 width, prints a test label, and registers the printer with Android — showing you what happened
 at each step rather than a spinner.
 
+## When the label comes out blank
+
+Read the symptom carefully, because two very different faults look similar.
+
+**The label feeds but is completely blank.** This is the paper, and it is the most common
+first-time failure by a wide margin. Thermal printers have no ink; they mark heat-sensitive
+stock, on one side only. Ordinary paper labels, or a thermal roll loaded upside down, feed
+perfectly and stay white. Nothing in the protocol can catch this: asked directly, the printer
+reports paper loaded, head down and no error, because from its point of view that is all true.
+
+**Stray characters, or pages of readable commands.** That one really is the command language.
+Change it in the printer's settings, where there is a test-page button.
+
 ## How it works
 
 Everything funnels through PDF as the intermediate representation, then re-encodes into
