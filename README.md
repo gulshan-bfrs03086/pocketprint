@@ -1,78 +1,131 @@
+<div align="center">
+
 # PocketPrint
 
+**Print from Android to any printer — Wi-Fi, Bluetooth or USB.**
+
+No cloud service. No account. No telemetry. Everything happens on your device and your LAN.
+
 [![CI](https://github.com/gulshan-bfrs03086/pocketprint/actions/workflows/ci.yml/badge.svg)](https://github.com/gulshan-bfrs03086/pocketprint/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/gulshan-bfrs03086/pocketprint?include_prereleases&sort=semver)](https://github.com/gulshan-bfrs03086/pocketprint/releases)
+![Android 7.0+](https://img.shields.io/badge/Android-7.0%2B-3DDC84?logo=android&logoColor=white)
+![Kotlin](https://img.shields.io/badge/Kotlin-2.2-7F52FF?logo=kotlin&logoColor=white)
+![Compose](https://img.shields.io/badge/Jetpack%20Compose-Material%203-4285F4)
 
-A personal Android printing app in the mould of PrinterShare: discover printers,
-render almost anything to them, and expose them to the rest of Android so any
-app's Print dialog can reach them — including Bluetooth thermal printers, which
-Android has no native support for.
+<p>
+  <img src="docs/screenshots/01-setup.png" width="30%" alt="One-tap printer setup" />
+  <img src="docs/screenshots/02-printers.png" width="30%" alt="Saved and discovered printers" />
+  <img src="docs/screenshots/03-labels.png" width="30%" alt="Label designer" />
+</p>
 
-Built for Android 7.0 (API 24) and up. No cloud service, no account, no
-telemetry; everything happens on the device and your LAN.
+</div>
 
-## What works
+---
 
-**Connections**
+## The problem this solves
 
-| Transport | Detail |
+Android prints to Wi-Fi printers perfectly well. But plug in a **Bluetooth thermal label
+printer** — the kind that prints shipping labels and receipts — and the system simply cannot
+see it. There is no driver, no print dialog entry, nothing. Vendor apps exist, but each one
+speaks to exactly one brand, phones home, and can't print a PDF.
+
+PocketPrint registers itself as a **system print service**, so a Bluetooth thermal printer
+becomes a real Android printer: it shows up in Gmail, Chrome, Photos, and every other app's
+print dialog, alongside your office laser.
+
+## What you can do with it
+
+**Print 4×6 shipping labels straight from your phone.** No PC in the loop. The label designer
+builds TSPL/ZPL commands directly, so barcodes are rendered by the printer's own firmware and
+stay sharp and scannable at small sizes rather than being blurry images.
+
+**Print receipts from a handheld.** ESC/POS to any 58 mm or 80 mm thermal printer.
+
+**Print from any app to a Bluetooth printer.** Share a PDF from Drive, hit Print in Chrome, or
+use the system print dialog — the app converts whatever Android hands it into the printer's own
+command language.
+
+**Reach printers nothing else will talk to.** Old network printers with no AirPrint, via raw
+port 9100. USB printers over an OTG cable. IPP Everywhere printers that only accept PWG Raster.
+
+**Run on rugged hardware.** The `legacy` build installs on Android 7.0 and on industrial
+terminals that lack GPS, a camera or a touchscreen.
+
+## Set up a printer in one tap
+
+Thermal printers don't advertise which command dialect they speak, and guessing from the device
+name is how you end up printing a page of literal command text. So PocketPrint just asks:
+
+```
+~!T  →  "4B-2044PA"          TSPL confirmed by the printer itself
+~HI  →  "4B-2044PA,V2.02…"   ZPL also answered — it's dual-emulation
+```
+
+The setup flow pairs, connects, probes for the language, works out the label size and head
+width, prints a test label, and registers the printer with Android — showing you what happened
+at each step rather than a spinner.
+
+## How it works
+
+Everything funnels through PDF as the intermediate representation, then re-encodes into
+whatever the target printer actually speaks.
+
+```mermaid
+flowchart LR
+    SRC["Photos · PDFs · Text<br/>Web pages · Office docs"] --> PDF["PDF<br/>(intermediate)"]
+    PDF --> ENC{"Printer's<br/>language"}
+
+    ENC -->|IPP Everywhere| E1["PDF / PWG Raster"]
+    ENC -->|Legacy laser| E2["PCL 5"]
+    ENC -->|Label printer| E3["TSPL / ZPL"]
+    ENC -->|Receipt printer| E4["ESC/POS"]
+
+    E1 --> T{"Transport"}
+    E2 --> T
+    E3 --> T
+    E4 --> T
+
+    T --> T1["IPP / IPPS<br/>mDNS discovery"]
+    T --> T2["Raw TCP 9100"]
+    T --> T3["Bluetooth<br/>RFCOMM / BLE"]
+    T --> T4["USB OTG"]
+```
+
+| | |
 |---|---|
-| Wi-Fi IPP / IPPS | Auto-discovered over mDNS (`_ipp._tcp`, `_ipps._tcp`). Full IPP client written from scratch — capability query, job submission, cancel, status. |
-| Raw TCP 9100 | JetDirect/AppSocket, auto-discovered via `_pdl-datastream._tcp` or added by IP. |
-| Bluetooth | RFCOMM/SPP to paired thermal and label printers, with the channel-1 fallback for units that advertise no usable SDP record. |
-| USB OTG | USB printer class (interface class 7), bulk-endpoint transfer with runtime permission brokering. |
+| **Wi-Fi** | IPP / IPPS, auto-discovered over mDNS. The IPP client is written from scratch — RFC 8010 encoding, RFC 8011 semantics — so there's no opaque dependency between you and the printer. |
+| **Raw 9100** | JetDirect / AppSocket, for printers that predate AirPrint. |
+| **Bluetooth** | RFCOMM with a four-rung connect ladder — bond, secure SPP, **insecure SPP**, channel-1 fallback. The insecure rung matters: legacy PIN-0000 controllers bring the channel up and then mishandle authentication. Plus BLE/GATT for LE-only printers. |
+| **USB** | USB printer class over OTG, with runtime permission brokering. |
 
-**What it can print**
+PDF pages are rasterised in **horizontal bands**, so a 600 dpi A4 page doesn't try to allocate a
+139 MB bitmap.
 
-- **Photos & images** — sampled down, laid out, and centred on the page.
-- **PDFs** — passed through to page printers, rasterized for thermal ones.
-- **Plain text / CSV / logs** — laid out with wrapping and pagination.
-- **Web pages & HTML** — rendered through WebView's own print adapter, so CSS
-  print rules and pagination behave.
-- **Shipping labels** — TSPL, ZPL and ESC/POS built directly, so barcodes are
-  generated by the printer's firmware and stay sharp.
-- **Office documents** — needs a converter endpoint; see the caveat below.
+## Get it
 
-**Output languages.** The pipeline always goes through PDF as the intermediate,
-then re-encodes for the target: PDF passthrough, PWG Raster (the mandatory IPP
-Everywhere fallback), PCL 5 raster, ESC/POS, TSPL, ZPL.
+Download from [**Releases**](https://github.com/gulshan-bfrs03086/pocketprint/releases) — two
+builds of identical code:
 
-**System print service.** `PocketPrintService` registers with Android's print
-framework, so your saved printers appear in every app's Print dialog. This is
-what makes a Bluetooth printer usable as a normal Android printer. Enable it
-once under **Settings → Connected devices → Printing → PocketPrint**.
-
-**Share target.** "Share → Print with PocketPrint" from any app.
-
-## Two builds
-
-The app ships as two variants of the same code. They are **not** a feature
-split: both compile identically and emit identical bytes to the printer. What
-differs is what the package asks the system for, which is what decides whether
-it installs and what it prompts for.
-
-| | `legacy` | `modern` |
+| | `pocketprint-modern.apk` | `pocketprint-legacy.apk` |
 |---|---|---|
-| Minimum Android | 7.0 (API 24) | 12 (API 31) |
-| Location permission | `ACCESS_FINE_LOCATION` (≤ API 30) | **none** |
-| Bluetooth permissions | legacy pair + split pair | split pair only |
-| Storage | `READ_EXTERNAL_STORAGE` (≤ API 32) | scoped only |
-| Required hardware features | none | none |
+| Android | **12+** (API 31) | **7.0+** (API 24) |
+| Location permission | **none** | `ACCESS_FINE_LOCATION` (API ≤ 30) |
+| Size | 18 MB | 19 MB |
 
-Before API 31 there were no split Bluetooth permissions: scanning for a device
-needed `BLUETOOTH`/`BLUETOOTH_ADMIN` *and* the location permission, because a
-Bluetooth scan can reveal position. From API 31, `BLUETOOTH_SCAN` with
-`neverForLocation` replaces all of it — so the modern build asks for no location
-access whatsoever.
+**Use `modern` unless your device is older than Android 12.**
 
-That difference is not cosmetic. `ACCESS_FINE_LOCATION` makes the build tools
-imply `android.hardware.location` as a **required** feature, and the package
-manager then refuses to install on any device without a location provider. That
-is precisely how this app became uninstallable on a rugged barcode terminal,
-reporting only a generic "Can't install the app". The legacy flavour declares
-those features optional to compensate; the modern flavour cannot hit the problem
-at all.
+Before API 31, scanning for a Bluetooth device required the location permission, because a scan
+can reveal position. `BLUETOOTH_SCAN` with `neverForLocation` replaced that — so the modern
+build asks for no location access at all. Neither build requires *any* hardware feature, so both
+install on devices without GPS, a camera or a touchscreen.
 
-**Use `modern` unless you need to support a device older than Android 12.**
+> [!NOTE]
+> Release APKs are signed with Android's **public debug keystore**, so they carry no authenticity
+> guarantee. Checksums are on the release page; build from source if you'd rather not trust a
+> binary.
+
+Then turn the print service on once, under **Settings → Connected devices → Printing →
+PocketPrint**. There's a button in the app that takes you straight there.
 
 ## Build
 
@@ -81,25 +134,14 @@ export JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home
 
 ./gradlew assembleModernDebug     # Android 12+
 ./gradlew assembleLegacyDebug     # Android 7.0+
-```
-
-Install to a connected device:
-
-```bash
-adb install -r app/build/outputs/apk/modern/debug/app-modern-debug.apk
-```
-
-Run the tests (both variants):
-
-```bash
 ./gradlew testLegacyDebugUnitTest testModernDebugUnitTest
+./scripts/check-required-features.sh   # no required hardware features
 ```
 
-Check every variant will install anywhere (no required hardware features):
-
-```bash
-./scripts/check-required-features.sh
-```
+That last check is a build gate, not a nicety. Android refuses to install a package whose
+required hardware features the device lacks, and reports only a generic "Can't install the app".
+This app once became uninstallable on a rugged terminal because `ACCESS_FINE_LOCATION` made the
+build tools imply `android.hardware.location` as **required**. CI now fails on any such feature.
 
 ## Layout
 
@@ -107,64 +149,34 @@ Check every variant will install anywhere (no required hardware features):
 model/         Printers, capabilities, media sizes, job records
 discovery/     mDNS (NsdManager), Bluetooth (bonded + inquiry), USB enumeration
 ipp/           IPP binary codec, HTTP client, capability mapping, PWG media names
-transport/     Raw socket, Bluetooth RFCOMM, USB bulk — plain byte pipes
-render/        PDF build/rasterize, PWG raster, PCL raster, WebView, office hook
+transport/     Raw socket, Bluetooth RFCOMM, BLE GATT, USB bulk — plain byte pipes
+render/        PDF build/rasterise, PWG raster, PCL raster, WebView, office hook
 label/         ESC/POS, TSPL, ZPL command builders
-print/         PrintEngine (render then send) and the foreground job service
+print/         PrintEngine, one-tap setup, foreground job service
 printservice/  Android print-framework integration
 ui/            Compose screens, view model, theme
 ```
 
-## Caveats, honestly
+## Honest status
 
-- **Office documents need a converter.** Laying out .docx/.xlsx/.pptx on-device
-  would mean shipping an office engine. Instead, Settings takes a converter URL
-  that accepts a multipart upload and returns a PDF — a
-  [Gotenberg](https://gotenberg.dev) container on your LAN works unmodified
-  (`http://host:3000/forms/libreoffice/convert`). Leave it blank and the app
-  says so plainly rather than failing obscurely.
-- **Printer capability strings lie.** Real printers under-report and
-  over-report what they support. The IPP path queries and adapts, but expect to
-  hand-correct a printer or two in its settings.
-- **Bluetooth thermal printers rarely announce their language.** The command
-  dialect is inferred from the device name (TSC → TSPL, Zebra → ZPL, otherwise
-  ESC/POS). Override it if the guess is wrong.
-- **PCL is the USB fallback.** USB page printers vary a lot; a device that
-  speaks only a proprietary host-based ("GDI/winprinter") protocol will not
-  work, and cannot be made to without vendor documentation.
-- **Untested against real hardware.** The protocol code is unit-tested — the
-  IPP codec and the PWG raster encoder round-trip against independent decoders —
-  but nothing here has met a physical printer yet.
+**Verified against real hardware.** A 4BARCODE 4B-2044PA over Bluetooth SPP: dialect detection,
+the exact TSPL byte stream, and label output. The system print service was verified end to end
+on an emulator — a saved printer really does reach Android's print dialog.
 
-## Verified so far
+**32 unit tests** cover the IPP codec (request framing, multi-value and resolution decoding,
+unknown-tag tolerance), PWG raster round trips including band-boundary equivalence, PWG media
+name parsing, and the exact TSPL output. CI builds and tests both variants on every push.
 
-- Debug and release builds compile; release passes lint and R8.
-- 11 unit tests pass: IPP request framing, multi-value/resolution/range decoding,
-  unknown-tag tolerance, PWG media name parsing, five PWG raster encode/decode
-  round trips, and two band-vs-whole-page equivalence tests covering the
-  streaming raster refactor.
-- An eight-reviewer adversarial audit (each finding independently verified by a
-  second reviewer trying to refute it) produced 34 findings, of which 13 were
-  confirmed and 3 refuted. 12 of the 13 are fixed; the remaining one (IPPS
-  self-signed certificates) is tracked and deliberately not papered over.
+**What isn't proven.** Coverage beyond that one printer is thin — that's the real gap, and no
+amount of code review closes it. Office documents need an external converter (a Gotenberg
+instance on your LAN works unmodified). IPPS printers with self-signed certificates don't work
+yet. Printers lie about their capabilities in inventive ways, so expect to correct a setting or
+two per model — there's a printer-settings screen for exactly that, with a test-page button.
 
-Notable defects that audit caught and that are now fixed:
+Known gaps are tracked as [open issues](https://github.com/gulshan-bfrs03086/pocketprint/issues).
 
-- **Every system print job failed.** `PrintJob` and `PrintDocument` accessors are
-  all `@MainThread`-guarded; three of them were being called from
-  `Dispatchers.IO`, so the headline feature failed 100% of the time and the
-  `finally` block's throw escaped the coroutine and could kill the process.
-- **Copies were multiplied.** The raster encoders baked the copy count into the
-  stream *and* IPP sent a `copies` attribute — 3 copies produced 9.
-- **OutOfMemory on real page sizes.** Whole-page rasterisation at 600 dpi
-  allocated roughly 450 MB across four buffers. Rendering is now banded and the
-  pixel conversions stream a row at a time.
-- **Shared text and links were discarded** at capture, producing a document with
-  an empty URI that could never print.
-- **Duplex never reached the printer:** the PWG header checked
-  `duplex.name.startsWith("TWO")` against enum constants named `LONG_EDGE` and
-  `SHORT_EDGE`, so it was never true.
-- Deleted printers stayed in every app's print dialog; USB permission was never
-  requested, dead-ending USB printing; a failed Bluetooth connect leaked the
-  socket and broke the retry; every paired device (headphones included) was
-  offered as a printer.
+## Contributing
+
+Printer quirks are the most useful thing you can report. If a printer misbehaves, open an issue
+with its model, the transport, and what came out — `adb logcat -s BluetoothTransport PrintEngine
+PocketPrintService` shows the actual protocol status rather than a generic failure.
