@@ -1,0 +1,21 @@
+*.iml
+.gradle/
+local.properties
+.idea/
+.DS_Store
+build/
+captures/
+.externalNativeBuild
+.cxx
+*.apk
+*.aab
+*.keystore
+!debug.keystore
+
+# Kotlin/Gradle scratch
+.kotlin/
+*.log
+*.hprof
+
+# Signed sideload builds are produced by apksigner, not checked in
+pocketprint-*.apk

@@ -1,0 +1,22 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- paper feeding out of the top -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M38,26h32v14h-32z" />
+    <!-- printer body -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M30,44h48a5,5 0 0 1 5,5v18a5,5 0 0 1 -5,5h-6v-12h-36v12h-6a5,5 0 0 1 -5,-5v-18a5,5 0 0 1 5,-5z" />
+    <!-- printed sheet -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M38,64h32v20h-32z" />
+    <!-- status light -->
+    <path
+        android:fillColor="#7FD1DE"
+        android:pathData="M70,50h6v5h-6z" />
+</vector>

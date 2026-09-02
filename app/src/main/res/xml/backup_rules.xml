@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <!-- Saved printers, job history and settings. Everything else, including
+         the spool directory in cacheDir, is excluded by omission. -->
+    <include domain="file" path="datastore/" />
+</full-backup-content>
