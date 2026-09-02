@@ -1,5 +1,7 @@
 # PocketPrint
 
+[![CI](https://github.com/gulshan-bfrs03086/pocketprint/actions/workflows/ci.yml/badge.svg)](https://github.com/gulshan-bfrs03086/pocketprint/actions/workflows/ci.yml)
+
 A personal Android printing app in the mould of PrinterShare: discover printers,
 render almost anything to them, and expose them to the rest of Android so any
 app's Print dialog can reach them — including Bluetooth thermal printers, which
@@ -57,6 +59,12 @@ Run the tests:
 
 ```bash
 JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home ./gradlew :app:testDebugUnitTest
+```
+
+Check the APK will install anywhere (no required hardware features):
+
+```bash
+./scripts/check-required-features.sh
 ```
 
 ## Layout
