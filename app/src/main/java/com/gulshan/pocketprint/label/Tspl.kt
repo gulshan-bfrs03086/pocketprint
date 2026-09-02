@@ -94,6 +94,18 @@ class Tspl(
         val bytesPerRow = (w + 7) / 8
         val packed = Raster.toPackedMono(scaled, dither = dither)
 
+        if (com.gulshan.pocketprint.BuildConfig.DEBUG) {
+            var ink = 0
+            for (b in packed) ink += Integer.bitCount(b.toInt() and 0xFF)
+            android.util.Log.i(
+                "TsplDiag",
+                "image src=${bitmap.width}x${bitmap.height} scaled=${w}x$h " +
+                    "bytesPerRow=$bytesPerRow maxWidth=$maxWidth dpi=$dpi " +
+                    "media=${media.id} inkBits=$ink of ${packed.size * 8} " +
+                    "(${"%.2f".format(ink * 100.0 / (packed.size * 8))}%)",
+            )
+        }
+
         // TSPL prints a dot for a 0 bit, so invert our ink mask.
         for (i in packed.indices) packed[i] = packed[i].toInt().inv().toByte()
 

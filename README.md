@@ -55,11 +55,20 @@ terminals that lack GPS, a camera or a touchscreen.
 ## Set up a printer in one tap
 
 Thermal printers don't advertise which command dialect they speak, and guessing from the device
-name is how you end up printing a page of literal command text. So PocketPrint just asks:
+name is how you end up printing a page of literal command text. So PocketPrint just asks.
+
+The trap is that asking politely gets you the wrong answer. Plenty of these printers ship with
+two interpreters and run only one at a time, but they answer the *identification* queries of
+both. A 4BARCODE 4B-2044PA sitting in ZPL mode still replies to TSPL's `~!T` with its model
+name, so a naive probe picks TSPL and every job afterwards comes out as a blank label: the ZPL
+interpreter quietly discards commands it can't parse, then feeds the stock anyway.
+
+The fix is to ask each interpreter for its *status*, because only the one that is running
+answers its own:
 
 ```
-~!T  →  "4B-2044PA"          TSPL confirmed by the printer itself
-~HI  →  "4B-2044PA,V2.02…"   ZPL also answered — it's dual-emulation
+ESC ! ?  →  (silence)                    TSPL is not the active interpreter
+~HS      →  <STX>150,0,0,1219,…<ETX>     ZPL is — and the label is calibrated to 1219 dots
 ```
 
 The setup flow pairs, connects, probes for the language, works out the label size and head
@@ -160,9 +169,11 @@ ui/            Compose screens, view model, theme
 
 ## Honest status
 
-**Verified against real hardware.** A 4BARCODE 4B-2044PA over Bluetooth SPP: dialect detection,
-the exact TSPL byte stream, and label output. The system print service was verified end to end
-on an emulator — a saved printer really does reach Android's print dialog.
+**Verified against real hardware.** Two 4BARCODE 4B-2044PA units over Bluetooth SPP: dialect
+detection, the exact TSPL and ZPL byte streams, and label output. One of the two runs its ZPL
+interpreter and is what turned the detection trap above from a theory into a fix. The system
+print service was verified end to end on an emulator — a saved printer really does reach
+Android's print dialog.
 
 **32 unit tests** cover the IPP codec (request framing, multi-value and resolution decoding,
 unknown-tag tolerance), PWG raster round trips including band-boundary equivalence, PWG media

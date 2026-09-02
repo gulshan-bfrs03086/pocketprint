@@ -47,6 +47,18 @@ class PrinterAutoSetup(private val context: Context) {
     companion object {
         private const val TAG = "PrinterAutoSetup"
 
+        /**
+         * TSPL immediate status: one byte back (00 ready, 01 head open,
+         * 04 out of paper, ...). Only an active TSPL interpreter answers it.
+         */
+        private val PROBE_TSPL_STATUS = byteArrayOf(0x1B, 0x21, 0x3F) // ESC ! ?
+
+        /**
+         * ZPL host status: three <STX>...<ETX> lines. Only an active ZPL
+         * interpreter answers it.
+         */
+        private val PROBE_ZPL_STATUS = byteArrayOf(0x7E, 0x48, 0x53, 0x0D, 0x0A) // ~HS
+
         /** TSPL host identification: returns the model name, e.g. "4B-2044PA". */
         private val PROBE_TSPL = byteArrayOf(0x7E, 0x21, 0x54, 0x0D, 0x0A) // ~!T CR LF
 
@@ -60,6 +72,9 @@ class PrinterAutoSetup(private val context: Context) {
         private const val STEP_SAVE = "save"
 
         private const val ASSUMED_DPI = 203
+
+        /** Long enough for a status reply over RFCOMM without stalling setup. */
+        private const val STATUS_WAIT_MS = 900L
     }
 
     private fun initialSteps() = listOf(
@@ -209,31 +224,60 @@ class PrinterAutoSetup(private val context: Context) {
     private data class Detection(val language: PrintLanguage, val model: String?)
 
     /**
-     * Sends a host-identification command and listens for a reply. TSPL is tried
-     * first because a label printer is the likely case here.
+     * Works out which command language the printer is actually listening in.
      *
-     * A printer that understands neither will print the probe text literally,
-     * which is a couple of stray characters on one label. That is a deliberate
-     * trade: it is far cheaper than shipping a mis-detected printer.
+     * The subtlety is dual-emulation hardware. A 4BARCODE 4B-2044PA sitting in
+     * ZPL mode still answers the TSPL service queries (~!T, ~!A, ~!I) with its
+     * model name and memory, so treating a ~!T reply as proof of TSPL picks the
+     * wrong language and every job afterwards comes out as a blank label: the
+     * ZPL interpreter discards the TSPL commands it cannot parse and feeds the
+     * stock anyway. Observed on a real 4B-2044PA, which answered ~!T with
+     * "4B-2044PA" and ~HS with a full ZPL status while staying silent to the
+     * TSPL status command.
+     *
+     * So ask the status commands first: only the interpreter that is running
+     * replies to its own. The identification queries are kept afterwards to
+     * name the model, and as a fallback for firmware that answers neither.
+     *
+     * A printer that understands nothing here will print a couple of stray
+     * characters on one label. That is far cheaper than a mis-detected printer.
      */
     private suspend fun detectLanguage(transport: PrinterTransport): Detection? {
         // Drain anything volunteered on connect so it is not read as a reply.
         runCatching { transport.readAvailable(150) }
 
-        transport.write(PROBE_TSPL)
-        readableReply(transport)?.let {
-            Log.i(TAG, "TSPL probe replied: $it")
+        transport.write(PROBE_TSPL_STATUS)
+        if (transport.readAvailable(STATUS_WAIT_MS).isNotEmpty()) {
+            val model = identify(transport, PROBE_TSPL)
+            Log.i(TAG, "TSPL interpreter is live (model=$model)")
+            return Detection(PrintLanguage.TSPL, model)
+        }
+
+        transport.write(PROBE_ZPL_STATUS)
+        if (transport.readAvailable(STATUS_WAIT_MS).isNotEmpty()) {
+            val model = identify(transport, PROBE_ZPL)?.substringBefore(',')
+            Log.i(TAG, "ZPL interpreter is live (model=$model)")
+            return Detection(PrintLanguage.ZPL, model)
+        }
+
+        // Neither status command answered: fall back to identification, which at
+        // least proves the printer understands one of the two families.
+        identify(transport, PROBE_TSPL)?.let {
+            Log.i(TAG, "no status reply; TSPL identified: $it")
             return Detection(PrintLanguage.TSPL, it)
         }
-
-        transport.write(PROBE_ZPL)
-        readableReply(transport)?.let {
-            Log.i(TAG, "ZPL probe replied: $it")
-            return Detection(PrintLanguage.ZPL, it)
+        identify(transport, PROBE_ZPL)?.let {
+            Log.i(TAG, "no status reply; ZPL identified: $it")
+            return Detection(PrintLanguage.ZPL, it.substringBefore(','))
         }
 
-        Log.i(TAG, "no reply to either probe")
+        Log.i(TAG, "no reply to any probe")
         return null
+    }
+
+    private suspend fun identify(transport: PrinterTransport, probe: ByteArray): String? {
+        transport.write(probe)
+        return readableReply(transport)
     }
 
     private suspend fun readableReply(transport: PrinterTransport): String? {

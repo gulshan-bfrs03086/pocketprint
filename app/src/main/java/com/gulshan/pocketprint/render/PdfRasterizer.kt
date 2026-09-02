@@ -66,6 +66,29 @@ object PdfRasterizer {
                         }
                         page.render(bitmap, null, matrix, PdfRenderer.Page.RENDER_MODE_FOR_PRINT)
 
+                        if (com.gulshan.pocketprint.BuildConfig.DEBUG) {
+                            val row = IntArray(widthPx)
+                            var dark = 0
+                            var opaque = 0
+                            var y = 0
+                            while (y < heightPx) {
+                                bitmap.getPixels(row, 0, widthPx, 0, y, widthPx, 1)
+                                for (p in row) {
+                                    if ((p ushr 24 and 0xFF) == 255) opaque++
+                                    val lum = 0.299f * (p ushr 16 and 0xFF) +
+                                        0.587f * (p ushr 8 and 0xFF) + 0.114f * (p and 0xFF)
+                                    if (lum < 128f) dark++
+                                }
+                                y += 8 // sample every 8th row
+                            }
+                            android.util.Log.i(
+                                "PdfDiag",
+                                "page $i pdfPt=${page.width}x${page.height} " +
+                                    "raster=${widthPx}x$heightPx dpi=$dpi " +
+                                    "sampledDarkPx=$dark opaquePx=$opaque",
+                            )
+                        }
+
                         try {
                             block(i, bitmap)
                         } finally {

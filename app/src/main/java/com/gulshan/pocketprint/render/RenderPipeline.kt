@@ -261,7 +261,19 @@ class RenderPipeline(
     ): RenderedDocument {
         if (pages == 0) throw IllegalStateException("Nothing was rendered for $language")
         val out = Spool.newFile(context, suffix)
-        out.outputStream().use { it.write(buffer.toByteArray()) }
+        val bytes = buffer.toByteArray()
+        out.outputStream().use { it.write(bytes) }
+        if (com.gulshan.pocketprint.BuildConfig.DEBUG) {
+            runCatching {
+                val dir = context.getExternalFilesDir(null)
+                val dump = File(dir, "last-stream$suffix")
+                dump.outputStream().use { it.write(bytes) }
+                android.util.Log.i(
+                    "StreamDiag",
+                    "wrote ${bytes.size} bytes of $language to ${dump.absolutePath}",
+                )
+            }
+        }
         return RenderedDocument(out, language, pages)
     }
 }
