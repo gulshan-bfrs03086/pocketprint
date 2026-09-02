@@ -102,6 +102,18 @@ android {
 
     packaging {
         resources.excludes += setOf("/META-INF/{AL2.0,LGPL2.1}")
+
+        dex {
+            // From minSdk 28 AGP stores DEX uncompressed so ART can mmap it:
+            // faster installs and lower memory, paid for in file size. That is
+            // the right trade when Play ships an AAB and compresses in transit.
+            //
+            // This app is sideloaded - APKs are copied to devices by hand - so
+            // the trade runs the other way: uncompressed took the modern
+            // variant from 19 MB to 60 MB for the same code. Revisit this if
+            // the app ever ships through Play.
+            useLegacyPackaging = true
+        }
     }
 }
 
