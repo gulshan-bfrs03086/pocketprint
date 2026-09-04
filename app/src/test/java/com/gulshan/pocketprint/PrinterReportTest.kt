@@ -8,6 +8,7 @@ import com.gulshan.pocketprint.model.Printer
 import com.gulshan.pocketprint.model.PrinterAddress
 import com.gulshan.pocketprint.model.PrinterCapabilities
 import com.gulshan.pocketprint.print.Diagnostics
+import com.gulshan.pocketprint.permissions.AppHealth
 import com.gulshan.pocketprint.print.PrinterReport
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -99,6 +100,30 @@ class PrinterReportTest {
         Diagnostics.record("TsplDiag", "inkBits=1024 of 8192 (12.50%)")
         val report = PrinterReport.build(printer, emptyList())
         assertTrue(report.contains("inkBits=1024 of 8192 (12.50%)"))
+    }
+
+    @Test
+    fun `a hibernating app says so, because it explains failures that look like the printer`() {
+        // A hibernated app has had its Bluetooth permission taken away without
+        // anybody touching a setting, and every symptom points at the printer.
+        val report = PrinterReport.build(
+            printer,
+            emptyList(),
+            PrinterReport.Health(
+                hibernation = AppHealth.Hibernation.WILL_HIBERNATE,
+                ignoresBatteryOptimisation = false,
+            ),
+        )
+        assertTrue(report.contains("three months"))
+        assertTrue(report.contains("optimised"))
+
+        val healthy = PrinterReport.build(
+            printer,
+            emptyList(),
+            PrinterReport.Health(AppHealth.Hibernation.EXEMPT, true),
+        )
+        assertTrue(healthy.contains("Hibernation exempt"))
+        assertTrue(healthy.contains("unrestricted"))
     }
 
     @Test

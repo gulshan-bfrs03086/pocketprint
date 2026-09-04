@@ -60,6 +60,7 @@ import com.gulshan.pocketprint.model.ColorMode
 import com.gulshan.pocketprint.model.ConnectionKind
 import com.gulshan.pocketprint.model.MediaSize
 import com.gulshan.pocketprint.model.Printer
+import com.gulshan.pocketprint.permissions.AppHealth
 import com.gulshan.pocketprint.permissions.AppPermissions
 import com.gulshan.pocketprint.permissions.PermissionStatus
 import com.gulshan.pocketprint.permissions.PrintServiceState
@@ -115,6 +116,7 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
         } ?: PermissionStatus.ASKABLE
     }
     val printServiceStatus = remember(systemEpoch) { PrintServiceState.status(context) }
+    val hibernation = remember(systemEpoch) { AppHealth.hibernation(context) }
     val setupStock by viewModel.setupStock.collectAsStateWithLifecycle()
 
     val pickDocument = rememberLauncherForActivityResult(
@@ -131,6 +133,28 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
     ) {
         items(storageProblems.entries.toList(), key = { it.key }) { problem ->
             WarningBanner(problem.value, Modifier.padding(top = 16.dp))
+        }
+
+        // Nobody can be warned about this when it happens, because when it
+        // happens they are not here - the whole point of the app is that it
+        // stops being opened. So it is said whenever they do open it.
+        if (hibernation == AppHealth.Hibernation.WILL_HIBERNATE) {
+            item {
+                Column(Modifier.padding(top = 16.dp)) {
+                    WarningBanner(
+                        "Android will switch PocketPrint off if it is not opened for " +
+                            "about three months, and take its Bluetooth permission " +
+                            "with it. Printing from other apps does not count as " +
+                            "opening it - so the next print from Gmail would simply " +
+                            "fail, inside Gmail, with nothing able to explain why. " +
+                            "Turning off \"pause app activity if unused\" prevents it.",
+                    )
+                    Button(
+                        onClick = { AppHealth.openHibernationSettings(context) },
+                        modifier = Modifier.padding(top = 8.dp),
+                    ) { Text("Open app info") }
+                }
+            }
         }
 
         // The state the old first-frame request left people in, with no way to

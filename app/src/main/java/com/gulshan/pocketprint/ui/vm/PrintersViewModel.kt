@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.gulshan.pocketprint.ServiceLocator
 import com.gulshan.pocketprint.data.AppSettings
 import com.gulshan.pocketprint.data.StorageHealth
+import com.gulshan.pocketprint.permissions.AppHealth
 import com.gulshan.pocketprint.permissions.AppPermissions
 import com.gulshan.pocketprint.label.EscPos
 import com.gulshan.pocketprint.label.Tspl
@@ -450,8 +451,14 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Pasteable diagnostics for one printer. See [PrinterReport]. */
-    fun printerReport(printer: Printer): String =
-        PrinterReport.build(printer, jobs.value)
+    fun printerReport(printer: Printer): String = PrinterReport.build(
+        printer = printer,
+        jobs = jobs.value,
+        health = PrinterReport.Health(
+            hibernation = AppHealth.hibernation(getApplication()),
+            ignoresBatteryOptimisation = AppHealth.ignoresBatteryOptimisation(getApplication()),
+        ),
+    )
 
     /**
      * Runs the printer's own media calibration.

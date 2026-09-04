@@ -5,6 +5,7 @@ import com.gulshan.pocketprint.BuildConfig
 import com.gulshan.pocketprint.model.PrintJobRecord
 import com.gulshan.pocketprint.model.Printer
 import com.gulshan.pocketprint.model.PrinterAddress
+import com.gulshan.pocketprint.permissions.AppHealth
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -23,7 +24,24 @@ object PrinterReport {
 
     private const val RECENT_JOBS = 10
 
-    fun build(printer: Printer, jobs: List<PrintJobRecord>): String {
+    /**
+     * What Android is doing to the app itself.
+     *
+     * Worth carrying because both of these produce failures that look like
+     * printer faults: a hibernated app has had its Bluetooth permission taken
+     * away without anybody touching a setting, and a battery-restricted one
+     * behaves oddly in ways nothing in a print log explains.
+     */
+    data class Health(
+        val hibernation: AppHealth.Hibernation,
+        val ignoresBatteryOptimisation: Boolean,
+    )
+
+    fun build(
+        printer: Printer,
+        jobs: List<PrintJobRecord>,
+        health: Health? = null,
+    ): String {
         val stamp = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(Date())
         val clock = SimpleDateFormat("HH:mm", Locale.US)
         val capabilities = printer.capabilities
@@ -43,6 +61,24 @@ object PrinterReport {
                 "${BuildConfig.BUILD_TYPE} build")
             appendLine("Device     ${Build.MANUFACTURER} ${Build.MODEL}, " +
                 "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
+            health?.let {
+                appendLine(
+                    "Hibernation " + when (it.hibernation) {
+                        AppHealth.Hibernation.EXEMPT -> "exempt"
+                        AppHealth.Hibernation.WILL_HIBERNATE ->
+                            "ON - Android will revoke this app's permissions if it is " +
+                                "not opened for about three months"
+                        AppHealth.Hibernation.NOT_APPLICABLE -> "not enforced on this version"
+                    },
+                )
+                appendLine(
+                    "Battery    " + if (it.ignoresBatteryOptimisation) {
+                        "unrestricted"
+                    } else {
+                        "optimised (the default)"
+                    },
+                )
+            }
             appendLine()
 
             appendLine("Printer    ${printer.displayName}")
