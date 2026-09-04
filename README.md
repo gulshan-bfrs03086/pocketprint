@@ -55,21 +55,27 @@ terminals that lack GPS, a camera or a touchscreen.
 ## Set up a printer in one tap
 
 Thermal printers don't advertise which command dialect they speak, and guessing from the device
-name is how you end up printing a page of literal command text. So PocketPrint just asks:
+name is how you end up printing a page of literal command text. So PocketPrint asks the printer.
+
+The catch is *what* you ask. These printers often ship with two interpreters and run only one,
+but they answer the identification queries of both, so a reply proves the printer exists and
+nothing more. Ask for **status** instead, because only the interpreter that is running answers
+its own:
 
 ```
-~!T  →  "4B-2044PA"          TSPL identified by the printer itself
-~HI  →  "4B-2044PA,V2.02…"   ZPL answered too — it's dual-emulation
+~!T      →  "4B-2044PA"                  identifies the printer, in either mode
+ESC ! ?  →  (silence)                    TSPL is not the interpreter running
+~HS      →  <STX>150,0,0,1219,…<ETX>     ZPL is — label calibrated to 1219 dots
 ```
 
-Identification is not the same as knowing which interpreter is *running*, and that is a real
-hazard on dual-emulation hardware: these printers answer the identification queries of both
-languages while executing only one. A printer set to the language it isn't running discards
-every command silently and feeds blank stock. If that happens, override the language in the
-printer's settings — there is a test-page button right there. Detecting the active interpreter
-automatically is [an open issue](https://github.com/gulshan-bfrs03086/pocketprint/issues); the
-per-language status commands look promising but are not reliable enough to trust yet, because
-plenty of TSPL clones never implement theirs.
+That printer is a real one, and it settled the question by printing: sent one test label in each
+dialect, only the ZPL one came out. Identification alone would have picked TSPL and produced a
+printer that accepts every job and silently prints nothing.
+
+TSPL is still checked first, so a printer answering both status commands behaves as it always
+did, and identification remains the fallback for firmware that answers neither. If a printer
+still ends up on the wrong dialect, override it in the printer's settings — there is a test-page
+button right there.
 
 The setup flow pairs, connects, probes for the language, works out the label size and head
 width, prints a test label, and registers the printer with Android — showing you what happened
