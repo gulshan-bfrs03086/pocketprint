@@ -91,6 +91,11 @@ jobs:
       - name: No required hardware features
         run: ./scripts/check-required-features.sh dist/pocketprint-modern.apk dist/pocketprint-legacy.apk
 
+      # The notes below tell readers what each build asks for. This is what
+      # makes that table a checked claim rather than a hopeful one.
+      - name: Permissions match what is documented
+        run: ./scripts/check-permissions.sh dist/pocketprint-modern.apk dist/pocketprint-legacy.apk
+
       # Prints the signing certificate into the log, which is how anyone can
       # check that a published APK carries the key they expect. The certificate
       # is public by definition; the key it came from never leaves the secret.
