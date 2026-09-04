@@ -40,6 +40,12 @@ print dialog, alongside your office laser.
 builds TSPL/ZPL commands directly, so barcodes are rendered by the printer's own firmware and
 stay sharp and scannable at small sizes rather than being blurry images.
 
+**Print in your own script.** A thermal printer's resident fonts hold Latin characters and
+nothing else, so Hindi, Arabic, Thai and Chinese come out as rows of question marks — in exactly
+the markets that buy these printers. Text the printer cannot carry is laid out on the phone,
+with Android's font fallback and its shaping and bidirectional reordering, and sent as an image.
+Latin text keeps the fast, crisp printer-font path.
+
 **Print receipts from a handheld.** ESC/POS to any 58 mm or 80 mm thermal printer.
 
 **Print from any app to a Bluetooth printer.** Share a PDF from Drive, hit Print in Chrome, or
@@ -210,15 +216,15 @@ stream under `getExternalFilesDir` for byte-level inspection. On a 4x6 label at 
 US Letter page renders to 812 x 1051 dots at 30.02% ink and emits exactly 107,357 bytes of
 TSPL. That makes it quick to tell a rendering bug from a printer that is not marking.
 
-**108 unit tests** cover the IPP codec (request framing, multi-value and resolution decoding,
+**120 unit tests** cover the IPP codec (request framing, multi-value and resolution decoding,
 unknown-tag tolerance), PWG raster round trips including band-boundary equivalence, PWG media
 name parsing, the exact TSPL output, which document types the exported share target will accept,
 the IPP job-state decoding that decides whether a job may be called printed, the per-printer job
 queue that keeps two jobs out of one RFCOMM slot, the rules that decide what the system print
 dialog is told about a printer, the stall guard that pulls a write out of a printer that has
 stopped reading, what the printer report does and does not disclose, and the versioned store that
-keeps one unreadable record from taking every saved printer with it. CI builds and tests both
-variants on every push.
+keeps one unreadable record from taking every saved printer with it, and which label text the
+printer's own fonts can carry. CI builds and tests both variants on every push.
 
 **What isn't proven.** Coverage beyond that one printer is thin — that's the real gap, and no
 amount of code review closes it. Office documents need an external converter (a Gotenberg
