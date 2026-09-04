@@ -94,17 +94,20 @@ class Tspl(
         val bytesPerRow = (w + 7) / 8
         val packed = Raster.toPackedMono(scaled, dither = dither)
 
-        if (com.gulshan.pocketprint.BuildConfig.DEBUG) {
-            var ink = 0
-            for (b in packed) ink += Integer.bitCount(b.toInt() and 0xFF)
-            android.util.Log.i(
-                "TsplDiag",
-                "image src=${bitmap.width}x${bitmap.height} scaled=${w}x$h " +
-                    "bytesPerRow=$bytesPerRow maxWidth=$maxWidth dpi=$dpi " +
-                    "media=${media.id} inkBits=$ink of ${packed.size * 8} " +
-                    "(${"%.2f".format(ink * 100.0 / (packed.size * 8))}%)",
-            )
-        }
+        // Recorded unconditionally: a population count over the packed buffer
+        // is a handful of instructions per byte, and the ink percentage is the
+        // one number that separates "the renderer produced nothing" from "the
+        // printer did nothing with it" - which is the fork every blank-label
+        // report starts at.
+        var ink = 0
+        for (b in packed) ink += Integer.bitCount(b.toInt() and 0xFF)
+        com.gulshan.pocketprint.print.Diagnostics.record(
+            "TsplDiag",
+            "image src=${bitmap.width}x${bitmap.height} scaled=${w}x$h " +
+                "bytesPerRow=$bytesPerRow maxWidth=$maxWidth dpi=$dpi " +
+                "media=${media.id} inkBits=$ink of ${packed.size * 8} " +
+                "(${"%.2f".format(ink * 100.0 / (packed.size * 8))}%)",
+        )
 
         // TSPL prints a dot for a 0 bit, so invert our ink mask.
         for (i in packed.indices) packed[i] = packed[i].toInt().inv().toByte()

@@ -406,6 +406,11 @@ class PrintEngine(
                             }
                         }
                         transport.finish()
+                        Diagnostics.record(
+                            TAG,
+                            "sent $sent bytes of ${rendered.language} over " +
+                                transport.description,
+                        )
                         PrintResult.Sent(sent, reason = unconfirmedReason(address))
                     }
                 }

@@ -277,7 +277,7 @@ class PrinterAutoSetup(private val context: Context) {
         transport.write(PROBE_TSPL_STATUS)
         if (transport.readAvailable(STATUS_WAIT_MS).isNotEmpty()) {
             val model = identify(transport, PROBE_TSPL)
-            Log.i(TAG, "TSPL interpreter is live (model=$model)")
+            Diagnostics.record(TAG, "TSPL status answered; interpreter is live (model=$model)")
             return Detection(PrintLanguage.TSPL, model)
         }
 
@@ -285,22 +285,22 @@ class PrinterAutoSetup(private val context: Context) {
         if (transport.readAvailable(STATUS_WAIT_MS).any { it == STX }) {
             // ~HI answers "model,version,dpm,memory"; keep the model only.
             val model = identify(transport, PROBE_ZPL)?.substringBefore(',')
-            Log.i(TAG, "ZPL interpreter is live (model=$model)")
+            Diagnostics.record(TAG, "ZPL status answered; interpreter is live (model=$model)")
             return Detection(PrintLanguage.ZPL, model)
         }
 
         // Neither status command answered. Fall back to identification, which
         // at least proves the printer understands one of the two families.
         identify(transport, PROBE_TSPL)?.let {
-            Log.i(TAG, "no status reply; TSPL identified: $it")
+            Diagnostics.record(TAG, "no status reply from either; TSPL identified itself as $it")
             return Detection(PrintLanguage.TSPL, it)
         }
         identify(transport, PROBE_ZPL)?.let {
-            Log.i(TAG, "no status reply; ZPL identified: $it")
+            Diagnostics.record(TAG, "no status reply from either; ZPL identified itself as $it")
             return Detection(PrintLanguage.ZPL, it.substringBefore(','))
         }
 
-        Log.i(TAG, "no reply to any probe")
+        Diagnostics.record(TAG, "no reply to any probe; falling back to the device name")
         return null
     }
 

@@ -292,14 +292,21 @@ class RenderPipeline(
         val out = Spool.newFile(context, suffix)
         val bytes = buffer.toByteArray()
         out.outputStream().use { it.write(bytes) }
+        com.gulshan.pocketprint.print.Diagnostics.record(
+            "StreamDiag",
+            "built ${bytes.size} bytes of $language over $pages page(s)",
+        )
         if (com.gulshan.pocketprint.BuildConfig.DEBUG) {
+            // Keeping a copy of what was sent is a debug-build affordance only:
+            // it is the user's document, and it does not belong on external
+            // storage on somebody's phone.
             runCatching {
                 val dir = context.getExternalFilesDir(null)
                 val dump = File(dir, "last-stream$suffix")
                 dump.outputStream().use { it.write(bytes) }
-                android.util.Log.i(
+                com.gulshan.pocketprint.print.Diagnostics.record(
                     "StreamDiag",
-                    "wrote ${bytes.size} bytes of $language to ${dump.absolutePath}",
+                    "dumped the stream to ${dump.absolutePath}",
                 )
             }
         }

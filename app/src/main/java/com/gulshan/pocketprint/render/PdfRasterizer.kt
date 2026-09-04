@@ -66,6 +66,16 @@ object PdfRasterizer {
                         }
                         page.render(bitmap, null, matrix, PdfRenderer.Page.RENDER_MODE_FOR_PRINT)
 
+                        com.gulshan.pocketprint.print.Diagnostics.record(
+                            "PdfDiag",
+                            "page $i pdfPt=${page.width}x${page.height} " +
+                                "raster=${widthPx}x$heightPx dpi=$dpi",
+                        )
+
+                        // The per-pixel pass is the expensive part - a sampled
+                        // 600 dpi A4 page is still six figures of pixels - so it
+                        // stays behind the debug flag while the geometry above
+                        // is always available.
                         if (com.gulshan.pocketprint.BuildConfig.DEBUG) {
                             val row = IntArray(widthPx)
                             var dark = 0
@@ -81,11 +91,9 @@ object PdfRasterizer {
                                 }
                                 y += 8 // sample every 8th row
                             }
-                            android.util.Log.i(
+                            com.gulshan.pocketprint.print.Diagnostics.record(
                                 "PdfDiag",
-                                "page $i pdfPt=${page.width}x${page.height} " +
-                                    "raster=${widthPx}x$heightPx dpi=$dpi " +
-                                    "sampledDarkPx=$dark opaquePx=$opaque",
+                                "page $i sampledDarkPx=$dark opaquePx=$opaque",
                             )
                         }
 

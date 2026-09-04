@@ -210,13 +210,14 @@ stream under `getExternalFilesDir` for byte-level inspection. On a 4x6 label at 
 US Letter page renders to 812 x 1051 dots at 30.02% ink and emits exactly 107,357 bytes of
 TSPL. That makes it quick to tell a rendering bug from a printer that is not marking.
 
-**80 unit tests** cover the IPP codec (request framing, multi-value and resolution decoding,
+**92 unit tests** cover the IPP codec (request framing, multi-value and resolution decoding,
 unknown-tag tolerance), PWG raster round trips including band-boundary equivalence, PWG media
 name parsing, the exact TSPL output, which document types the exported share target will accept,
 the IPP job-state decoding that decides whether a job may be called printed, the per-printer job
 queue that keeps two jobs out of one RFCOMM slot, the rules that decide what the system print
-dialog is told about a printer, and the stall guard that pulls a write out of a printer that has
-stopped reading. CI builds and tests both variants on every push.
+dialog is told about a printer, the stall guard that pulls a write out of a printer that has
+stopped reading, and what the printer report does and does not disclose. CI builds and tests both
+variants on every push.
 
 **What isn't proven.** Coverage beyond that one printer is thin — that's the real gap, and no
 amount of code review closes it. Office documents need an external converter (a Gotenberg
@@ -240,6 +241,11 @@ their owners' trademarks and are used here only to identify the protocols.
 
 ## Contributing
 
-Printer quirks are the most useful thing you can report. If a printer misbehaves, open an issue
-with its model, the transport, and what came out — `adb logcat -s BluetoothTransport PrintEngine
-PocketPrintService` shows the actual protocol status rather than a generic failure.
+Printer quirks are the most useful thing you can report. If a printer misbehaves, open the
+printer's settings and tap **Copy printer report**, then paste it into an issue along with what
+actually came out of the printer. It carries the dialect, the head width, how much ink the
+rasteriser put on the page and how many bytes reached the printer — which is usually enough to
+tell a rendering bug from a printer that is not marking. Read it before you paste it: it names
+the documents you printed recently. Bluetooth addresses have their device half removed.
+
+`adb logcat -s BluetoothTransport PrintEngine PocketPrintService` shows the same thing live.

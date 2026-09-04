@@ -35,6 +35,7 @@ fun PrinterSettingsDialog(
     onDismiss: () -> Unit,
     onSave: (Printer) -> Unit,
     onTestPage: (Printer) -> Unit,
+    onCopyReport: () -> Unit,
 ) {
     var name by remember { mutableStateOf(printer.displayName) }
     var language by remember {
@@ -138,6 +139,13 @@ fun PrinterSettingsDialog(
 
                 TextButton(onClick = { onTestPage(edited()) }) {
                     Text("Send test page with these settings")
+                }
+
+                // "It doesn't print" is not something anyone can act on. This
+                // is: the dialect, the head width, the ink the rasteriser put
+                // on the page, and the bytes that reached the printer.
+                TextButton(onClick = onCopyReport) {
+                    Text("Copy printer report")
                 }
             }
         },

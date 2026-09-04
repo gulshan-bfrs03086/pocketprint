@@ -23,6 +23,7 @@ import com.gulshan.pocketprint.model.SourceDocument
 import com.gulshan.pocketprint.print.JobListener
 import com.gulshan.pocketprint.print.PrintForegroundService
 import com.gulshan.pocketprint.print.PrinterAutoSetup
+import com.gulshan.pocketprint.print.PrinterReport
 import com.gulshan.pocketprint.print.SetupProgress
 import com.gulshan.pocketprint.print.TestLabelOutcome
 import com.gulshan.pocketprint.render.Spool
@@ -383,6 +384,10 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
     fun cancelJob(job: PrintJobRecord) {
         PrintForegroundService.requestCancel(getApplication(), job.id)
     }
+
+    /** Pasteable diagnostics for one printer. See [PrinterReport]. */
+    fun printerReport(printer: Printer): String =
+        PrinterReport.build(printer, jobs.value)
 
     fun clearLabelStatus() { _labelStatus.value = null }
 

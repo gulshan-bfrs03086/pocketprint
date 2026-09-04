@@ -1,6 +1,10 @@
 package com.gulshan.pocketprint.ui.screens
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Intent
+import android.os.Build
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -322,6 +326,20 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
                 editing = null
             },
             onTestPage = { viewModel.printTestPage(it) },
+            onCopyReport = {
+                val clipboard = context.getSystemService(ClipboardManager::class.java)
+                clipboard?.setPrimaryClip(
+                    ClipData.newPlainText(
+                        "PocketPrint report",
+                        viewModel.printerReport(target),
+                    ),
+                )
+                // From Android 13 the system shows its own copy confirmation,
+                // and a Toast on top of it is just clutter.
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+                    Toast.makeText(context, "Printer report copied", Toast.LENGTH_SHORT).show()
+                }
+            },
         )
     }
 
