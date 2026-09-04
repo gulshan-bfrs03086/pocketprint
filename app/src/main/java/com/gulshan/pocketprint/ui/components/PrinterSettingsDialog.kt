@@ -2,11 +2,13 @@ package com.gulshan.pocketprint.ui.components
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -15,8 +17,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.gulshan.pocketprint.model.LabelStock
+import com.gulshan.pocketprint.model.MediaSensing
 import com.gulshan.pocketprint.model.MediaSize
 import com.gulshan.pocketprint.model.PrintLanguage
 import com.gulshan.pocketprint.model.Printer
@@ -36,6 +41,7 @@ fun PrinterSettingsDialog(
     onSave: (Printer) -> Unit,
     onTestPage: (Printer) -> Unit,
     onCopyReport: () -> Unit,
+    onCalibrate: (Printer) -> Unit,
 ) {
     var name by remember { mutableStateOf(printer.displayName) }
     var language by remember {
@@ -52,13 +58,39 @@ fun PrinterSettingsDialog(
     }
     var exposeToSystem by remember { mutableStateOf(printer.exposeToSystem) }
 
+    // Sizes the user has typed in, kept alongside the built-in list. 50x30 and
+    // 60x40 are two of the most common rolls on the market and neither is one
+    // of the five sizes this app shipped with.
+    var extraSizes by remember {
+        mutableStateOf(printer.capabilities.mediaSizes.filter { it.isCustom })
+    }
+    var customWidth by remember { mutableStateOf("") }
+    var customHeight by remember { mutableStateOf("") }
+
+    var sensing by remember { mutableStateOf(printer.stock.sensing) }
+    var gapMm by remember { mutableStateOf(printer.stock.gapMm.toString()) }
+    var darkness by remember { mutableStateOf(printer.stock.darkness) }
+    var speed by remember { mutableStateOf(printer.stock.speedIps) }
+
+    val isLabelPrinter = language == PrintLanguage.TSPL || language == PrintLanguage.ZPL
+    val sizes = (MediaSize.ALL + extraSizes).distinctBy { it.id }
+
+    fun stock() = LabelStock(
+        sensing = sensing,
+        gapMm = gapMm.toFloatOrNull()?.coerceIn(0f, 50f) ?: printer.stock.gapMm,
+        offsetMm = printer.stock.offsetMm,
+        darkness = darkness,
+        speedIps = speed,
+    )
+
     fun edited(): Printer = printer.copy(
         displayName = name.ifBlank { printer.displayName },
         exposeToSystem = exposeToSystem,
+        stock = stock(),
         capabilities = printer.capabilities.copy(
             languages = listOf(language),
-            mediaSizes = listOf(media) +
-                printer.capabilities.mediaSizes.filterNot { it.id == media.id },
+            mediaSizes = (listOf(media) + extraSizes + printer.capabilities.mediaSizes)
+                .distinctBy { it.id },
             resolutionsDpi = listOf(dpi),
             rasterWidthDots = widthDots.toIntOrNull()?.takeIf { it > 0 },
         ),
@@ -110,11 +142,111 @@ fun PrinterSettingsDialog(
 
                 Text("Default stock", style = MaterialTheme.typography.labelMedium)
                 ChipRow(
-                    items = MediaSize.ALL,
+                    items = sizes,
                     selected = media,
                     label = { it.label },
                     onSelect = { media = it },
                 )
+
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    OutlinedTextField(
+                        value = customWidth,
+                        onValueChange = { customWidth = it.filter { c -> c.isDigit() || c == '.' } },
+                        label = { Text("Width mm") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                    )
+                    OutlinedTextField(
+                        value = customHeight,
+                        onValueChange = {
+                            customHeight = it.filter { c -> c.isDigit() || c == '.' }
+                        },
+                        label = { Text("Height mm") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                    )
+                    OutlinedButton(
+                        onClick = {
+                            val w = customWidth.toFloatOrNull()
+                            val h = customHeight.toFloatOrNull()
+                            if (w != null && h != null && w > 0f && h > 0f) {
+                                val size = MediaSize.custom(w, h)
+                                extraSizes = (extraSizes + size).distinctBy { it.id }
+                                media = size
+                                customWidth = ""
+                                customHeight = ""
+                            }
+                        },
+                    ) { Text("Add") }
+                }
+
+                if (isLabelPrinter) {
+                    Text("Label stock", style = MaterialTheme.typography.labelMedium)
+                    ChipRow(
+                        items = MediaSensing.entries.toList(),
+                        selected = sensing,
+                        label = {
+                            when (it) {
+                                MediaSensing.GAP -> "Gap"
+                                MediaSensing.BLACK_MARK -> "Black mark"
+                                MediaSensing.CONTINUOUS -> "Continuous"
+                            }
+                        },
+                        onSelect = { sensing = it },
+                    )
+                    Text(
+                        "How the printer finds the top of the next label. Set to look " +
+                            "for a gap that is not there, it feeds forward hunting for " +
+                            "one and stops with a paper fault. Nothing in the protocol " +
+                            "can tell you which is right, which is why it is a setting.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+
+                    if (sensing != MediaSensing.CONTINUOUS) {
+                        OutlinedTextField(
+                            value = gapMm,
+                            onValueChange = { gapMm = it.filter { c -> c.isDigit() || c == '.' } },
+                            label = {
+                                Text(
+                                    if (sensing == MediaSensing.GAP) {
+                                        "Gap height in mm"
+                                    } else {
+                                        "Black mark height in mm"
+                                    },
+                                )
+                            },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+
+                    Stepper("Darkness", darkness, 0..15) { darkness = it }
+                    Text(
+                        "The most common adjustment there is. Too light and barcodes " +
+                            "scan intermittently or not at all; too dark and thin bars " +
+                            "bleed together and also stop scanning.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+
+                    Stepper("Speed (ips)", speed, 1..12) { speed = it }
+
+                    TextButton(onClick = { onCalibrate(edited()) }) {
+                        Text("Calibrate media sensor")
+                    }
+                    Text(
+                        "Feeds a few labels while the printer works out where the " +
+                            "gaps are. Worth doing when printing drifts onto the join " +
+                            "between two labels.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
 
                 Text("Resolution", style = MaterialTheme.typography.labelMedium)
                 ChipRow(
@@ -152,4 +284,24 @@ fun PrinterSettingsDialog(
         confirmButton = { TextButton(onClick = { onSave(edited()) }) { Text("Save") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
+}
+
+/** A bounded integer with two buttons, for the handful of small numeric knobs. */
+@Composable
+private fun Stepper(label: String, value: Int, range: IntRange, onChange: (Int) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("$label: $value", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+        OutlinedButton(
+            onClick = { onChange((value - 1).coerceIn(range)) },
+            enabled = value > range.first,
+        ) { Text("-") }
+        OutlinedButton(
+            onClick = { onChange((value + 1).coerceIn(range)) },
+            enabled = value < range.last,
+        ) { Text("+") }
+    }
 }

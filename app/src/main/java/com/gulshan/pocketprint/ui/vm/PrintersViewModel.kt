@@ -225,7 +225,7 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
 
         val bytes = when (language) {
             PrintLanguage.TSPL -> Tspl(media, dpi).apply {
-                setup(density = _options.value.density)
+                setup(printer.stock)
                 text(20, 20, "POCKETPRINT TEST", font = "3")
                 text(20, 70, "TSPL  ${media.label}", font = "2")
                 text(20, 105, "${dpi} dpi  ${width} dots", font = "2")
@@ -235,7 +235,7 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
             }.build()
 
             PrintLanguage.ZPL -> Zpl(media, dpi).apply {
-                start(density = _options.value.density)
+                start(printer.stock)
                 text(20, 20, "POCKETPRINT TEST", height = 36, width = 36)
                 text(20, 70, "ZPL  ${media.label}", height = 26, width = 26)
                 text(20, 105, "${dpi} dpi  ${width} dots", height = 26, width = 26)
@@ -413,6 +413,30 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
     /** Pasteable diagnostics for one printer. See [PrinterReport]. */
     fun printerReport(printer: Printer): String =
         PrinterReport.build(printer, jobs.value)
+
+    /**
+     * Runs the printer's own media calibration.
+     *
+     * The printer feeds a few labels while it finds the gaps, which is a real
+     * cost - so it is a button somebody presses, not something done for them.
+     * The alternative when registration has drifted is a roll printed half on
+     * one label and half on the next while somebody guesses at gap heights.
+     */
+    fun calibrate(printer: Printer) = viewModelScope.launch {
+        val media = printer.capabilities.mediaSizes.firstOrNull() ?: MediaSize.LABEL_4X6
+        val dpi = printer.capabilities.resolutionsDpi.firstOrNull() ?: 203
+
+        val bytes = when (printer.capabilities.languages.firstOrNull()) {
+            PrintLanguage.TSPL -> Tspl(media, dpi).calibrate(printer.stock).build()
+            PrintLanguage.ZPL -> Zpl(media, dpi).calibrate(printer.stock).build()
+            else -> {
+                _labelStatus.value =
+                    "${printer.displayName} has no media sensor to calibrate."
+                return@launch
+            }
+        }
+        printRawLabel(printer, bytes, "Calibrate")
+    }
 
     fun clearLabelStatus() { _labelStatus.value = null }
 

@@ -348,6 +348,11 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
                 editing = null
             },
             onTestPage = { viewModel.printTestPage(it) },
+            onCalibrate = {
+                viewModel.updatePrinter(it)
+                viewModel.calibrate(it)
+                editing = null
+            },
             onCopyReport = {
                 val clipboard = context.getSystemService(ClipboardManager::class.java)
                 clipboard?.setPrimaryClip(

@@ -290,7 +290,10 @@ class RenderPipeline(
             pdf.file, dpi = dpi, targetWidthPx = width, pageRange = options.pageRange,
         ) { _, bitmap ->
             val builder = Tspl(media, dpi)
-                .setup(density = options.density)
+                // From the printer, not the job: this describes the roll that
+                // is physically loaded and how hard the head has to burn for
+                // it, neither of which changes with the document.
+                .setup(printer.stock)
                 .image(0, 0, bitmap, dither = options.dither)
             builder.print(sets = 1, copies = options.copies.coerceAtLeast(1))
             buffer.write(builder.build())
@@ -315,7 +318,7 @@ class RenderPipeline(
             pdf.file, dpi = dpi, targetWidthPx = width, pageRange = options.pageRange,
         ) { _, bitmap ->
             val builder = Zpl(media, dpi)
-                .start(density = options.density)
+                .start(printer.stock)
                 .image(0, 0, bitmap, dither = options.dither)
             builder.end(copies = options.copies.coerceAtLeast(1))
             buffer.write(builder.build())

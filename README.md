@@ -57,6 +57,12 @@ finding out.
 use the system print dialog — the app converts whatever Android hands it into the printer's own
 command language.
 
+**Use the roll you actually have.** Any label size, typed in millimetres — 50×30 and 60×40 are
+the two most common rolls on the market. Gap, black-mark or continuous sensing, because a printer
+told to look for a gap that is not there feeds forward hunting for one and stops with a paper
+fault. Darkness, because a barcode printed too faint scans intermittently and looks like a bad
+barcode rather than a heat setting. And a calibrate button for when registration drifts.
+
 **Reach printers nothing else will talk to.** Old network printers with no AirPrint, via raw
 port 9100. USB printers over an OTG cable. IPP Everywhere printers that only accept PWG Raster.
 
@@ -221,7 +227,7 @@ stream under `getExternalFilesDir` for byte-level inspection. On a 4x6 label at 
 US Letter page renders to 812 x 1051 dots at 30.02% ink and emits exactly 107,357 bytes of
 TSPL. That makes it quick to tell a rendering bug from a printer that is not marking.
 
-**128 unit tests** cover the IPP codec (request framing, multi-value and resolution decoding,
+**148 unit tests** cover the IPP codec (request framing, multi-value and resolution decoding,
 unknown-tag tolerance), PWG raster round trips including band-boundary equivalence, PWG media
 name parsing, the exact TSPL output, which document types the exported share target will accept,
 the IPP job-state decoding that decides whether a job may be called printed, the per-printer job
@@ -229,8 +235,9 @@ queue that keeps two jobs out of one RFCOMM slot, the rules that decide what the
 dialog is told about a printer, the stall guard that pulls a write out of a printer that has
 stopped reading, what the printer report does and does not disclose, and the versioned store that
 keeps one unreadable record from taking every saved printer with it, and which label text the
-printer's own fonts can carry, and the bit order and polarity of the mono raster. CI builds and
-tests both variants on every push.
+printer's own fonts can carry, the bit order and polarity of the mono raster, and the media
+sensing and darkness commands for both label dialects. CI builds and tests both variants on every
+push.
 
 **What isn't proven.** Coverage beyond that one printer is thin — that's the real gap, and no
 amount of code review closes it. Office documents need an external converter (a Gotenberg

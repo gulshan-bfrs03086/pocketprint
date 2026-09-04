@@ -36,7 +36,6 @@ data class PrintOptions(
     val pageTo: Int? = null,
     val fitToPage: Boolean = true,
     /** Thermal printers: darkness/heat. 0-15 for TSPL, 0-30 for ZPL. */
-    val density: Int = 8,
     /** Error-diffusion dithering when reducing to 1 bit. Off gives hard threshold. */
     val dither: Boolean = true,
 ) {

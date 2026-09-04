@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.gulshan.pocketprint.label.EscPos
 import com.gulshan.pocketprint.label.LabelText
+import com.gulshan.pocketprint.model.LabelStock
 import com.gulshan.pocketprint.label.Tspl
 import com.gulshan.pocketprint.label.Zpl
 import com.gulshan.pocketprint.model.MediaSize
@@ -156,7 +157,7 @@ fun LabelScreen(viewModel: PrintersViewModel) {
                     language = language,
                     media = media,
                     dpi = dpi,
-                    density = options.density,
+                    stock = printer.stock,
                     copies = options.copies,
                     headline = title,
                     line2 = line2,
@@ -215,7 +216,7 @@ private fun buildLabel(
     language: PrintLanguage,
     media: MediaSize,
     dpi: Int,
-    density: Int,
+    stock: LabelStock,
     copies: Int,
     headline: String,
     line2: String,
@@ -232,7 +233,7 @@ private fun buildLabel(
     return when (language) {
 
         PrintLanguage.TSPL -> Tspl(media, dpi).apply {
-            setup(density = density)
+            setup(stock)
             var y = LABEL_MARGIN
             if (printerFonts) {
                 text(LABEL_MARGIN, y, headline, font = "3"); y += 48
@@ -256,7 +257,7 @@ private fun buildLabel(
         }.build()
 
         PrintLanguage.ZPL -> Zpl(media, dpi).apply {
-            start(density = density)
+            start(stock)
             var y = LABEL_MARGIN
             if (printerFonts) {
                 text(LABEL_MARGIN, y, headline, height = 40, width = 40); y += 56
