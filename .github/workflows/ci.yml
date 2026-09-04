@@ -41,17 +41,13 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
 
-      - name: Unit tests (both variants)
-        run: ./gradlew testLegacyDebugUnitTest testModernDebugUnitTest --no-daemon
+      - name: Unit tests
+        run: ./gradlew testDebugUnitTest --no-daemon
 
       # assembleRelease also runs lintVitalRelease and R8, which have caught
       # real defects here (an invalid backup-rules path, missing keep rules).
-      - name: Assemble both variants, debug and release
-        run: >-
-          ./gradlew
-          assembleLegacyDebug assembleModernDebug
-          assembleLegacyRelease assembleModernRelease
-          --no-daemon
+      - name: Assemble debug and release
+        run: ./gradlew assembleDebug assembleRelease --no-daemon
 
       # Android refuses to install a package whose required hardware features
       # the device lacks, reporting only "Can't install the app". This has
@@ -77,13 +73,11 @@ jobs:
       - name: One platform-package exception, with its fallback
         run: ./scripts/check-platform-packages.sh
 
-      - name: Upload debug APKs
+      - name: Upload the debug APK
         uses: actions/upload-artifact@v7
         with:
-          name: apks
-          path: |
-            app/build/outputs/apk/legacy/debug/app-legacy-debug.apk
-            app/build/outputs/apk/modern/debug/app-modern-debug.apk
+          name: apk
+          path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
 
       # Only useful when something broke, and the reports are large.

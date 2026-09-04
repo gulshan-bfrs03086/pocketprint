@@ -66,8 +66,8 @@ barcode rather than a heat setting. And a calibrate button for when registration
 **Reach printers nothing else will talk to.** Old network printers with no AirPrint, via raw
 port 9100. USB printers over an OTG cable. IPP Everywhere printers that only accept PWG Raster.
 
-**Run on rugged hardware.** The `legacy` build installs on Android 7.0 and on industrial
-terminals that lack GPS, a camera or a touchscreen.
+**Run on rugged hardware.** Installs on Android 7.0 and on industrial terminals that lack GPS,
+a camera or a touchscreen.
 
 ## Set up a printer in one tap
 
@@ -154,25 +154,28 @@ PDF pages are rasterised in **horizontal bands**, so a 600 dpi A4 page doesn't t
 
 ## Get it
 
-Download from [**Releases**](https://github.com/gulshan-bfrs03086/pocketprint/releases) — two
-builds of identical code:
+Download from [**Releases**](https://github.com/gulshan-bfrs03086/pocketprint/releases) — one
+build, `pocketprint.apk`:
 
-| | `pocketprint-modern.apk` | `pocketprint-legacy.apk` |
-|---|---|---|
-| Android | **12+** (API 31) | **7.0+** (API 24) |
-| Location permission | **none** | **none** |
-| Size | 18 MB | 19 MB |
+| | |
+|---|---|
+| Android | **7.0+** (API 24) |
+| Location permission | **none** |
+| Size | 1.8 MB |
 
-**Use `modern` unless your device is older than Android 12.**
+It replaces the separate `modern` and `legacy` APKs earlier versions shipped, and installs over
+either of them — same signing key, same applicationId, a higher version code. Nothing to
+uninstall. The two differed by a single install-time permission that Android 12 ignores anyway,
+which was not worth two of every file and sentence describing them.
 
-Neither build asks for a location permission, and neither asks for permission to scan. Pairing
-goes through Android's own companion device picker, which scans on the app's behalf — an app
-that does not scan does not need permission to. Before that change the legacy build carried
-`ACCESS_FINE_LOCATION`, because a Bluetooth scan on those versions required it, which is how
-this app once became uninstallable on a rugged terminal with no GPS.
+It asks for no location permission, and none to scan. Pairing goes through Android's own
+companion device picker, which scans on the app's behalf — an app that does not scan does not
+need permission to. Earlier versions carried `ACCESS_FINE_LOCATION`, because a Bluetooth scan
+below API 31 required it, which is how this app once became uninstallable on a rugged terminal
+with no GPS.
 
-Neither build requires *any* hardware feature, so both install on devices without GPS, a camera
-or a touchscreen.
+It requires *no* hardware feature, so it installs on devices without GPS, a camera or a
+touchscreen.
 
 > [!NOTE]
 > Releases are built and signed by [a tag-triggered workflow](.github/workflows/release.yml),
@@ -196,10 +199,10 @@ refused to the point where Android stops asking, the app says so and offers the 
 ```bash
 export JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home
 
-./gradlew assembleModernDebug     # Android 12+
-./gradlew assembleLegacyDebug     # Android 7.0+
-./gradlew testLegacyDebugUnitTest testModernDebugUnitTest
+./gradlew assembleDebug
+./gradlew testDebugUnitTest
 ./scripts/check-required-features.sh   # no required hardware features
+./scripts/check-permissions.sh         # asks for exactly what the docs say
 ./scripts/check-platform-packages.sh   # one non-SDK dependency, and it has a fallback
 ```
 
@@ -218,7 +221,7 @@ check fails if a second platform-package class appears or if the fallback stops 
 
 Versions are built on `release/X.Y` branches and reach `main` by merge, so `main` always holds the
 latest — see [docs/RELEASING.md](docs/RELEASING.md). The version is declared once, in
-`app/build.gradle.kts`, and both flavours' version codes derive from it.
+`app/build.gradle.kts`, and the version code derives from it.
 
 ## Translating it
 
@@ -258,7 +261,7 @@ stream under `getExternalFilesDir` for byte-level inspection. On a 4x6 label at 
 US Letter page renders to 812 x 1051 dots at 30.02% ink and emits exactly 107,357 bytes of
 TSPL. That makes it quick to tell a rendering bug from a printer that is not marking.
 
-**204 unit tests** cover the IPP codec (request framing, multi-value and resolution decoding,
+**102 unit tests** cover the IPP codec (request framing, multi-value and resolution decoding,
 unknown-tag tolerance), PWG raster round trips including band-boundary equivalence, PWG media
 name parsing, the exact TSPL output, which document types the exported share target will accept,
 the IPP job-state decoding that decides whether a job may be called printed, the per-printer job

@@ -30,16 +30,40 @@
          that works from the bonded list. An app that does not scan does not need
          permission to scan. -->
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <!-- The same thing, for the versions that predate the split. Before API 31
+         one BLUETOOTH permission covered everything; it is install-time and
+         prompts for nothing, and the platform stops honouring it at 31, which
+         is why it is capped rather than left open-ended.
+
+         This used to live in a separate "legacy" source set, and was the entire
+         difference between the two builds this app used to ship - one extra
+         install-time line. It was not worth two APKs, two version codes and two
+         of every sentence describing them. -->
+    <uses-permission android:name="android.permission.BLUETOOTH"
+        android:maxSdkVersion="30" />
 
     <uses-feature android:name="android.software.companion_device_setup"
         android:required="false" />
 
-    <!-- No storage or media permission of any kind, in either flavour.
-         Documents are picked through the Storage Access Framework and arrive as
-         a content:// URI already carrying its own read grant, which is the whole
-         point of SAF. READ_MEDIA_IMAGES was declared here and READ_EXTERNAL_
-         STORAGE in the legacy flavour; neither was ever requested at runtime, so
-         they granted nothing and only invited a Play photo-policy review. -->
+    <!-- Kept as a guard rather than a fix. ACCESS_FINE_LOCATION was once
+         declared for pre-API-31 Bluetooth scanning, and aapt turned it into an
+         implied REQUIRED android.hardware.location feature - which is exactly
+         how this app became uninstallable on a rugged barcode terminal with no
+         GPS, reporting nothing more useful than "Can't install the app". The
+         permission is gone and the implication with it, but these stay so that
+         re-adding any location permission cannot bring the failure back
+         silently. CI fails on any required feature, and on any change to the
+         permission set that has not been written down. -->
+    <uses-feature android:name="android.hardware.location" android:required="false" />
+    <uses-feature android:name="android.hardware.location.gps" android:required="false" />
+    <uses-feature android:name="android.hardware.location.network" android:required="false" />
+
+    <!-- No storage or media permission of any kind. Documents are picked
+         through the Storage Access Framework and arrive as a content:// URI
+         already carrying its own read grant, which is the whole point of SAF.
+         READ_MEDIA_IMAGES and READ_EXTERNAL_STORAGE were both declared once;
+         neither was ever requested at runtime, so they granted nothing and only
+         invited a Play photo-policy review. -->
 
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"
         tools:targetApi="tiramisu" />

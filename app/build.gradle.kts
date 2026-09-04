@@ -19,13 +19,46 @@ val versionMinor = 1
 val versionPatch = 0
 
 /**
- * Version codes must be distinct integers that only increase, and the two
- * flavours are separate packages of the same version, so they cannot share
- * one. Derive the code from the version rather than tracking it by hand, and
- * give each flavour a low digit: modern sits above legacy so a device that can
- * install either takes the build with fewer permissions.
+ * The version code, derived from the version rather than tracked by hand.
+ *
+ * The `* 10` is load-bearing, and is the one piece of the old two-flavour
+ * layout that has to outlive it. There used to be two packages sharing one
+ * applicationId, so each needed its own code: legacy took base + 1 and modern
+ * base + 2, which is why v1.1.0 shipped 101001 and 101002.
+ *
+ * Version codes may only ever increase. Dropping the multiplier now that one
+ * build is enough would take 1.2.0 down to 10200, an order of magnitude below
+ * what is already installed. The require() below refuses to build in that case
+ * rather than shipping an APK nobody can install.
  */
 val baseVersionCode = (versionMajor * 10000 + versionMinor * 100 + versionPatch) * 10
+
+/**
+ * The highest code ever published: v1.1.0 modern. Legacy was 101001.
+ *
+ * Recorded because it is the floor every future build has to clear, and
+ * nothing else in the tree remembers it.
+ */
+val highestPublishedVersionCode = 101002
+
+/**
+ * The single build takes the next free slot above the flavours it replaces.
+ *
+ * Not `baseVersionCode` alone, which would be 101000 at this version - below
+ * both codes already installed on people's devices, so an APK built from main
+ * would be refused as a downgrade by anyone running 1.1.0. The `+ 3` is simply
+ * the first slot after legacy's `+ 1` and modern's `+ 2`; every later version
+ * clears the floor on its own because the base grows.
+ */
+val appVersionCode = baseVersionCode + 3
+
+require(appVersionCode > highestPublishedVersionCode) {
+    "versionCode $appVersionCode is not above $highestPublishedVersionCode, which " +
+        "is already published. Android refuses an update whose code does not " +
+        "increase, and the only way out for a user is uninstalling - which takes " +
+        "their configured printers with it. Most likely cause: the * 10 was " +
+        "dropped from baseVersionCode after the flavours went away."
+}
 
 /**
  * Release signing material, when there is any.
@@ -83,73 +116,23 @@ android {
 
     defaultConfig {
         applicationId = "com.gulshan.pocketprint"
+
+        // Android 7.0, which is where the old legacy flavour started. One build
+        // now covers the whole range: the split existed to spare Android 12+
+        // devices a permission, and there is no longer one to spare them.
+        minSdk = 24
         targetSdk = targetSdkVersion
-        versionCode = baseVersionCode
+        versionCode = appVersionCode
         versionName = "$versionMajor.$versionMinor.$versionPatch"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
-    /**
-     * Two distributions of the same app.
-     *
-     * They are not a feature split: both build the identical code and print the
-     * identical bytes. The difference is entirely in what the package asks the
-     * system for, which is what decides whether it installs and what it prompts
-     * for on a given device.
-     */
-    flavorDimensions += "reach"
-    productFlavors {
-        /**
-         * Android 7.0 and up, for older and rugged hardware.
-         *
-         * All it adds over modern is BLUETOOTH capped at API 30 - the single
-         * permission a Bluetooth connection needed before API 31 split it into
-         * BLUETOOTH_CONNECT and BLUETOOTH_SCAN. Install-time, prompts for
-         * nothing.
-         *
-         * It used to carry ACCESS_FINE_LOCATION as well, because scanning below
-         * API 31 required it, and aapt turned that into an implied
-         * android.hardware.location feature - which is how this app once became
-         * uninstallable on a rugged terminal with no GPS, reporting nothing
-         * more useful than "Can't install the app". Scanning is the system
-         * picker's job now, so the permission is gone and neither flavour asks
-         * for location. The optional uses-feature declarations in the legacy
-         * manifest stay behind as a guard against that returning unnoticed.
-         */
-        create("legacy") {
-            dimension = "reach"
-            minSdk = 24
-            versionCode = baseVersionCode + 1
-            versionNameSuffix = "-legacy"
-        }
-
-        /**
-         * Android 12 and up.
-         *
-         * Identical to legacy except that it does not declare the pre-API-31
-         * BLUETOOTH permission, which the platform stops honouring at API 31
-         * regardless.
-         *
-         * That really is the whole difference, measured on the published v1.1.0
-         * APKs: ten permissions against nine, and the tenth is the one above.
-         * Both once differed on location access too, and no longer do. Whether
-         * two builds still earn their keep for one install-time permission is
-         * an open question rather than a settled design - see gulshan-hll2.
-         */
-        create("modern") {
-            dimension = "reach"
-            minSdk = 31
-            versionCode = baseVersionCode + 2
-            versionNameSuffix = "-modern"
-        }
-    }
-
     signingConfigs {
         getByName("debug") {
-            // No v1. JAR signing is only consulted below API 24, and the lowest
-            // flavour here starts exactly at 24, so apksigner omits it whatever
-            // this config asks for. enableV1Signing used to be set here and the
-            // APK came out without a v1 signature anyway.
+            // No v1. JAR signing is only consulted below API 24, and minSdk is
+            // exactly 24, so apksigner omits it whatever this config asks for.
+            // enableV1Signing used to be set here and the APK came out without
+            // a v1 signature anyway.
             enableV2Signing = true
         }
 
@@ -160,10 +143,9 @@ android {
                 keyAlias = releaseKeyAlias
                 keyPassword = releaseKeyPassword
 
-                // v2 is what carries the legacy flavour: it starts at Android
-                // 7.0, which is the release that introduced v2 verification, so
-                // every device it can install on can check it. v3 carries modern
-                // by itself - apksigner stops emitting v2 from minSdk 28 up.
+                // minSdk 24 is Android 7.0, the release that introduced v2
+                // verification, so every device this can install on can check a
+                // v2 signature. v3 rides along for Android 9 and up.
                 //
                 // No v1, and this is not an oversight to be corrected later.
                 // Android consults a JAR signature only below API 24; nothing
@@ -224,9 +206,14 @@ android {
             // the right trade when Play ships an AAB and compresses in transit.
             //
             // This app is sideloaded - APKs are copied to devices by hand - so
-            // the trade runs the other way: uncompressed took the modern
-            // variant from 19 MB to 60 MB for the same code. Revisit this if
-            // the app ever ships through Play.
+            // the trade runs the other way: uncompressed took the build from
+            // 19 MB to 60 MB for the same code, measured on what was then the
+            // modern variant. Revisit this if the app ever ships through Play.
+            //
+            // At minSdk 24 AGP compresses anyway, so today this changes nothing
+            // and is a guard rather than an override. It starts mattering again
+            // the moment minSdk reaches 28 - which is the point of leaving it
+            // here rather than removing a line that currently does nothing.
             useLegacyPackaging = true
         }
     }

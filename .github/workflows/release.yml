@@ -69,32 +69,29 @@ jobs:
       # The same gate main gets. A release is the worst place to find out that
       # a test was failing.
       - name: Unit tests (both variants)
-        run: ./gradlew testLegacyDebugUnitTest testModernDebugUnitTest --no-daemon
+        run: ./gradlew testDebugUnitTest --no-daemon
 
-      - name: Assemble signed release APKs
+      - name: Assemble the signed release APK
         env:
           POCKETPRINT_KEYSTORE: ${{ runner.temp }}/pocketprint.jks
           POCKETPRINT_KEYSTORE_PASSWORD: ${{ secrets.POCKETPRINT_KEYSTORE_PASSWORD }}
           POCKETPRINT_KEY_ALIAS: ${{ secrets.POCKETPRINT_KEY_ALIAS }}
           POCKETPRINT_KEY_PASSWORD: ${{ secrets.POCKETPRINT_KEY_PASSWORD }}
-        run: ./gradlew assembleLegacyRelease assembleModernRelease --no-daemon
+        run: ./gradlew assembleRelease --no-daemon
 
-      - name: Collect and name the APKs
+      - name: Collect and name the APK
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/modern/release/app-modern-release.apk \
-             dist/pocketprint-modern.apk
-          cp app/build/outputs/apk/legacy/release/app-legacy-release.apk \
-             dist/pocketprint-legacy.apk
+          cp app/build/outputs/apk/release/app-release.apk dist/pocketprint.apk
 
       # An APK the package manager will refuse to install is not a release.
       - name: No required hardware features
-        run: ./scripts/check-required-features.sh dist/pocketprint-modern.apk dist/pocketprint-legacy.apk
+        run: ./scripts/check-required-features.sh dist/pocketprint.apk
 
       # The notes below tell readers what each build asks for. This is what
       # makes that table a checked claim rather than a hopeful one.
       - name: Permissions match what is documented
-        run: ./scripts/check-permissions.sh dist/pocketprint-modern.apk dist/pocketprint-legacy.apk
+        run: ./scripts/check-permissions.sh dist/pocketprint.apk
 
       # Prints the signing certificate into the log, which is how anyone can
       # check that a published APK carries the key they expect. The certificate
@@ -143,7 +140,7 @@ jobs:
       - name: Checksums
         run: |
           cd dist
-          sha256sum pocketprint-modern.apk pocketprint-legacy.apk > SHA256SUMS.txt
+          sha256sum pocketprint.apk > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
       - name: Upload the APKs as run artifacts
@@ -174,8 +171,7 @@ jobs:
         run: |
           version="${GITHUB_REF_NAME#v}"
           assets=(
-            dist/pocketprint-modern.apk
-            dist/pocketprint-legacy.apk
+            dist/pocketprint.apk
             dist/SHA256SUMS.txt
           )
 
@@ -194,18 +190,18 @@ jobs:
           {
             echo "## PocketPrint $version"
             echo
-            echo "Two builds of identical code. **Use \`modern\` unless your device is older than Android 12.**"
+            echo "One build, for Android 7.0 (API 24) and up. It asks for no"
+            echo "location permission."
             echo
-            echo "| | Android | Location permission |"
-            echo "|---|---|---|"
-            echo "| \`pocketprint-modern.apk\` | 12+ (API 31) | none |"
-            echo "| \`pocketprint-legacy.apk\` | 7.0+ (API 24) | none |"
+            echo "It replaces the separate \`modern\` and \`legacy\` APKs, and"
+            echo "installs over either of them - same signing key, same"
+            echo "applicationId, a higher version code. Nothing to uninstall."
             echo
             echo "Checksums are in the attached \`SHA256SUMS.txt\`."
             echo
             echo "## Checking what you downloaded"
             echo
-            echo "Both APKs carry a single signing certificate:"
+            echo "The APK carries this signing certificate:"
             echo
             echo '```'
             echo "SHA-256  $CERT_SHA256"
@@ -215,7 +211,7 @@ jobs:
             echo "To confirm a file you have is really this build:"
             echo
             echo '```'
-            echo "apksigner verify --print-certs pocketprint-modern.apk"
+            echo "apksigner verify --print-certs pocketprint.apk"
             echo '```'
             echo
             echo "A different fingerprint means a different key, whatever the" \

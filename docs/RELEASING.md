@@ -32,7 +32,7 @@ val versionMinor = 0
 val versionPatch = 1
 ```
 
-Everything else derives from it, including both flavours' version codes, so the
+Everything else derives from it, including the version code, so the
 name and the code cannot drift apart. Bump it as the **first commit on the
 release branch**, never on `main` — `main` takes the new version through the
 merge, which is what keeps "main is the latest version" true rather than
@@ -70,7 +70,7 @@ has already been made.
 
 Releases are signed with a key that is not in this repository and never will
 be. Until one is configured, `assembleRelease` produces
-`app-<flavour>-release-unsigned.apk` and the release workflow refuses to start.
+`app-release-unsigned.apk` and the release workflow refuses to start.
 That is deliberate: the fallback is not the debug key. An APK signed with
 Android's public debug keystore looks signed and is not — anyone at all can
 build an update that installs over a user's copy and inherits the enabled print
@@ -115,11 +115,12 @@ base64 -i pocketprint-release.jks | pbcopy   # -> POCKETPRINT_KEYSTORE_BASE64
 plus `POCKETPRINT_KEYSTORE_PASSWORD`, `POCKETPRINT_KEY_ALIAS` and
 `POCKETPRINT_KEY_PASSWORD`.
 
-Pushing a `vX.Y.Z` tag then runs `.github/workflows/release.yml`: tests both
-variants, builds and signs both flavours, checks neither declares a required
-hardware feature, prints the signing certificate's fingerprints into the log so
-a published APK can be checked against them, and **drafts** a release carrying
-the two APKs and their SHA-256 sums. It never publishes — someone reads the
+Pushing a `vX.Y.Z` tag then runs `.github/workflows/release.yml`: runs the
+tests, builds and signs the APK, checks it declares no required hardware
+feature and asks for exactly the permissions the docs describe, reads the
+signing certificate's fingerprint back out of the signed APK — into the log and
+into the release notes, so a download can be checked against it — and **drafts**
+a release carrying the APK and its SHA-256 sum. It never publishes — someone reads the
 draft and presses the button. `workflow_dispatch` does all of that except touch
 the Releases page, which makes it a usable dry run.
 
@@ -143,7 +144,8 @@ again for the new one.
 ## Note on v1.0.0
 
 The published `v1.0.0` pre-release points at an early commit and is left alone
-as history. It predates the licence, the flavour split, and the printer
+as history. It predates the licence, the flavour split that has since been
+undone, and the printer
 language detection that field testing corrected, so it is not the 1.0 anyone
 should install. `v1.0.1` is that release, tagged on the code actually verified
 against hardware.
