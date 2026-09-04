@@ -20,6 +20,7 @@ import com.gulshan.pocketprint.model.Printer
 import com.gulshan.pocketprint.model.PrinterAddress
 import com.gulshan.pocketprint.model.PrinterCapabilities
 import com.gulshan.pocketprint.model.SourceDocument
+import com.gulshan.pocketprint.print.JobListener
 import com.gulshan.pocketprint.print.PrintForegroundService
 import com.gulshan.pocketprint.print.PrinterAutoSetup
 import com.gulshan.pocketprint.print.SetupProgress
@@ -335,9 +336,12 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
         val jobId = java.util.UUID.randomUUID().toString()
         val startedAt = System.currentTimeMillis()
 
-        val result = engine.printRaw(printer, bytes, name, _options.value) { status ->
-            _labelStatus.value = "${printer.displayName}: $status"
-        }
+        val result = engine.printRaw(
+            printer, bytes, name, _options.value,
+            JobListener(
+                onStatus = { status -> _labelStatus.value = "${printer.displayName}: $status" },
+            ),
+        )
 
         _labelStatus.value = when (result) {
             is PrintResult.Completed ->

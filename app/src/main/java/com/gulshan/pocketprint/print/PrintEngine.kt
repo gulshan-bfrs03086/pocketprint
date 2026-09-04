@@ -207,11 +207,10 @@ class PrintEngine(
         printer: Printer,
         source: SourceDocument,
         options: PrintOptions,
-        onProgress: (Long, Long) -> Unit = { _, _ -> },
-        onStatus: (String) -> Unit = {},
+        listener: JobListener = JobListener(),
     ): PrintResult = runCatching {
         val rendered = pipeline.render(source, printer, options)
-        send(printer, rendered, source.displayName, options, onProgress, onStatus)
+        send(printer, rendered, source.displayName, options, listener)
     }.getOrElse { failureOf(it) }
 
     /** Entry point for the system print service, which hands us a finished PDF. */
@@ -220,11 +219,10 @@ class PrintEngine(
         pdf: File,
         jobName: String,
         options: PrintOptions,
-        onProgress: (Long, Long) -> Unit = { _, _ -> },
-        onStatus: (String) -> Unit = {},
+        listener: JobListener = JobListener(),
     ): PrintResult = runCatching {
         val rendered = pipeline.renderPdf(pdf, printer, options)
-        send(printer, rendered, jobName, options, onProgress, onStatus)
+        send(printer, rendered, jobName, options, listener)
     }.getOrElse { failureOf(it) }
 
     suspend fun printRaw(
@@ -232,65 +230,98 @@ class PrintEngine(
         bytes: ByteArray,
         jobName: String,
         options: PrintOptions,
-        onStatus: (String) -> Unit = {},
+        listener: JobListener = JobListener(),
     ): PrintResult = runCatching {
         withContext(Dispatchers.IO) {
             val address = printer.address
             if (address is PrinterAddress.Ipp) {
-                val response = ippClient.printJob(
-                    address = address,
-                    jobName = jobName,
-                    format = printer.capabilities.preferredLanguage(),
-                    options = options,
-                    supportedMedia = printer.capabilities.mediaSizes.map { it.id },
-                    contentLength = bytes.size.toLong(),
-                    openDocument = { bytes.inputStream() },
-                )
+                val response = onPrinter(printer, listener) {
+                    ippClient.printJob(
+                        address = address,
+                        jobName = jobName,
+                        format = printer.capabilities.preferredLanguage(),
+                        options = options,
+                        supportedMedia = printer.capabilities.mediaSizes.map { it.id },
+                        contentLength = bytes.size.toLong(),
+                        openDocument = { bytes.inputStream() },
+                    )
+                }
                 if (response.isSuccess) {
                     awaitIppCompletion(
                         address = address,
                         jobId = IppCapabilityMapper.jobId(response),
                         bytesSent = bytes.size.toLong(),
                         windowMs = LABEL_POLL_WINDOW_MS,
-                        onStatus = onStatus,
+                        onStatus = listener.onStatus,
                     )
                 } else {
                     PrintResult.Failure("Printer rejected job: ${response.statusText}")
                 }
             } else {
-                TransportFactory.create(context, printer).use { transport ->
-                    transport.open()
-                    val sent = transport.write(bytes)
-                    // Must drain before use{} closes, or the tail is discarded.
-                    transport.finish()
-                    PrintResult.Sent(sent, reason = unconfirmedReason(address))
+                onPrinter(printer, listener) {
+                    TransportFactory.create(context, printer).use { transport ->
+                        transport.open()
+                        val sent = transport.write(bytes)
+                        // Must drain before use{} closes, or the tail is discarded.
+                        transport.finish()
+                        PrintResult.Sent(sent, reason = unconfirmedReason(address))
+                    }
                 }
             }
         }
     }.getOrElse { failureOf(it) }
+
+    /**
+     * Takes the printer's queue for the duration of [delivery], and tells the
+     * caller if it had to wait.
+     *
+     * Deliberately wrapped around delivery only, not around rendering: a render
+     * is local work that touches nothing on the printer, and holding a printer
+     * hostage while a PDF rasterises would serialise two jobs that could have
+     * overlapped for most of their lives.
+     */
+    private suspend fun <T> onPrinter(
+        printer: Printer,
+        listener: JobListener,
+        delivery: suspend () -> T,
+    ): T = PrinterQueue.withPrinter(
+        printer = printer,
+        onWaiting = {
+            listener.onWaitingForPrinter(true)
+            listener.onStatus("Waiting for another job on ${printer.displayName} to finish")
+        },
+        onResumed = { listener.onWaitingForPrinter(false) },
+        block = delivery,
+    )
 
     private suspend fun send(
         printer: Printer,
         rendered: RenderedDocument,
         jobName: String,
         options: PrintOptions,
-        onProgress: (Long, Long) -> Unit,
-        onStatus: (String) -> Unit,
+        listener: JobListener,
     ): PrintResult = try {
         val total = rendered.sizeBytes
         val address = printer.address
 
         if (address is PrinterAddress.Ipp) {
-            val response = ippClient.printJob(
-                address = address,
-                jobName = jobName,
-                format = rendered.language,
-                options = options,
-                supportedMedia = printer.capabilities.mediaSizes.map { it.id },
-                contentLength = total,
-                openDocument = { rendered.file.inputStream() },
-            )
-            onProgress(total, total)
+            // The queue covers handing the job over, not waiting for it to
+            // print. An IPP printer has a spooler of its own and is perfectly
+            // happy to accept the next job while it works through this one;
+            // holding our lock across a five-minute poll would serialise jobs
+            // the printer never needed serialised.
+            val response = onPrinter(printer, listener) {
+                ippClient.printJob(
+                    address = address,
+                    jobName = jobName,
+                    format = rendered.language,
+                    options = options,
+                    supportedMedia = printer.capabilities.mediaSizes.map { it.id },
+                    contentLength = total,
+                    openDocument = { rendered.file.inputStream() },
+                )
+            }
+            listener.onProgress(total, total)
 
             if (response.isSuccess) {
                 awaitIppCompletion(
@@ -298,7 +329,7 @@ class PrintEngine(
                     jobId = IppCapabilityMapper.jobId(response),
                     bytesSent = total,
                     windowMs = DOCUMENT_POLL_WINDOW_MS,
-                    onStatus = onStatus,
+                    onStatus = listener.onStatus,
                 )
             } else {
                 val unsupported = response.unsupported()
@@ -309,17 +340,22 @@ class PrintEngine(
                 PrintResult.Failure("Printer rejected job: ${response.statusText}$unsupported")
             }
         } else {
-            withContext(Dispatchers.IO) {
-                TransportFactory.create(context, printer).use { transport ->
-                    transport.open()
-                    // Copies are already baked into the payload by this point:
-                    // TSPL via PRINT, ZPL via ^PQ, ESC/POS by repeating the page,
-                    // PCL via ESC&l#X. So the stream goes out exactly once.
-                    val sent = transport.write(rendered.file.inputStream()) { written ->
-                        onProgress(written, total)
+            // Here the lock is the whole job. There is one RFCOMM slot, one USB
+            // interface, one socket: the connection has to be opened, filled
+            // and drained without another job arriving in the middle of it.
+            onPrinter(printer, listener) {
+                withContext(Dispatchers.IO) {
+                    TransportFactory.create(context, printer).use { transport ->
+                        transport.open()
+                        // Copies are already baked into the payload by this point:
+                        // TSPL via PRINT, ZPL via ^PQ, ESC/POS by repeating the page,
+                        // PCL via ESC&l#X. So the stream goes out exactly once.
+                        val sent = transport.write(rendered.file.inputStream()) { written ->
+                            listener.onProgress(written, total)
+                        }
+                        transport.finish()
+                        PrintResult.Sent(sent, reason = unconfirmedReason(address))
                     }
-                    transport.finish()
-                    PrintResult.Sent(sent, reason = unconfirmedReason(address))
                 }
             }
         }

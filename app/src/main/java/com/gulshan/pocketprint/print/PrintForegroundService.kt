@@ -72,9 +72,12 @@ class PrintForegroundService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     /**
-     * Jobs run one at a time. A thermal printer holds a single RFCOMM slot, so
-     * a second job would fail to connect anyway while the first is still
-     * draining, and Android delivers every start on the same service instance.
+     * Jobs from this service run one at a time.
+     *
+     * Not for the printer's sake any more - PrinterQueue owns that, and owns it
+     * for every path rather than just this one. This lock is now about the
+     * notification: there is a single foreground notification slot, and two
+     * concurrent jobs would take turns overwriting each other's progress in it.
      */
     private val queue = Mutex()
     private val inFlight = AtomicInteger(0)
@@ -159,20 +162,22 @@ class PrintForegroundService : Service() {
                 printer = printer,
                 source = document,
                 options = options,
-                onProgress = { sent, total ->
-                    val percent = if (total > 0) (sent * 100 / total).toInt() else 0
-                    notifyProgress(
-                        document.displayName,
-                        "Sending to ${printer.displayName}",
-                        percent,
-                    )
-                },
-                // Only IPP ever reports back, and when it does the wait can be
-                // long. Saying "waiting for the printer - processing" beats a
-                // progress bar sitting at 100% for two minutes.
-                onStatus = { status ->
-                    notify(document.displayName, "${printer.displayName}: $status", 100)
-                },
+                listener = JobListener(
+                    onProgress = { sent, total ->
+                        val percent = if (total > 0) (sent * 100 / total).toInt() else 0
+                        notifyProgress(
+                            document.displayName,
+                            "Sending to ${printer.displayName}",
+                            percent,
+                        )
+                    },
+                    // Only IPP ever reports back, and when it does the wait can
+                    // be long. "processing - media empty error" beats a progress
+                    // bar sitting at 100% for two minutes.
+                    onStatus = { status ->
+                        notify(document.displayName, "${printer.displayName}: $status", 100)
+                    },
+                ),
             )
         } catch (cancel: CancellationException) {
             // The history row must not be left stranded at SENDING. Written

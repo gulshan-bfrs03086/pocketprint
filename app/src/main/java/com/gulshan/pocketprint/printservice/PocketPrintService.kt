@@ -19,6 +19,7 @@ import com.gulshan.pocketprint.model.Orientation
 import com.gulshan.pocketprint.model.PrintOptions
 import com.gulshan.pocketprint.model.PrintResult
 import com.gulshan.pocketprint.model.Printer
+import com.gulshan.pocketprint.print.JobListener
 import com.gulshan.pocketprint.render.Spool
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
@@ -114,6 +115,23 @@ class PocketPrintService : PrintService() {
                             pdf = spooled,
                             jobName = jobLabel,
                             options = options,
+                            // Without this the dialog shows "printing" while the
+                            // job sits behind another one on the same printer,
+                            // which reads as stuck. Blocked with a reason reads
+                            // as waiting, which is what is actually happening.
+                            listener = JobListener(
+                                onWaitingForPrinter = { waiting ->
+                                    if (waiting) {
+                                        block(
+                                            printJob,
+                                            "Waiting for another job on " +
+                                                printer.displayName,
+                                        )
+                                    } else {
+                                        resume(printJob)
+                                    }
+                                },
+                            ),
                         )
                     ) {
                         // The framework has exactly two terminal states here,
@@ -222,6 +240,15 @@ class PocketPrintService : PrintService() {
     // PrintJob state transitions must happen on the main thread.
     private fun complete(printJob: PrintJob) = onMain {
         if (!printJob.isCompleted) printJob.complete()
+    }
+
+    private fun block(printJob: PrintJob, reason: String) = onMain {
+        if (printJob.isStarted) printJob.block(reason)
+    }
+
+    /** The framework's name for leaving the blocked state is start(). */
+    private fun resume(printJob: PrintJob) = onMain {
+        if (printJob.isBlocked) printJob.start()
     }
 
     private fun fail(printJob: PrintJob, message: String) = onMain {
