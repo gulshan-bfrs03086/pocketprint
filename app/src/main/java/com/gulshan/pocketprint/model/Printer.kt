@@ -192,6 +192,16 @@ data class Printer(
     /** Surface this printer through Android's system print dialog. */
     val exposeToSystem: Boolean = true,
     val lastSeenEpochMs: Long = 0L,
+    /**
+     * Somebody looked at a test label and said it came out right.
+     *
+     * On a Bluetooth, USB or raw-socket printer this is the only confirmation
+     * that exists anywhere: none of those protocols reports what it did with
+     * the bytes, and a printer will happily accept a job in a dialect it is not
+     * running, feed a blank label, and report no error. So the human eye is the
+     * sensor, and this records what it saw.
+     */
+    val testPrintConfirmed: Boolean = false,
 ) {
     val kind: ConnectionKind get() = address.kind
 

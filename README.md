@@ -81,18 +81,23 @@ The setup flow pairs, connects, probes for the language, works out the label siz
 width, prints a test label, and registers the printer with Android — showing you what happened
 at each step rather than a spinner.
 
-## When the label comes out blank
+## Setup asks whether the label printed
 
-Read the symptom carefully, because two very different faults look similar.
+Because nothing else can. A thermal printer reports paper loaded, head down and no error whether
+it just printed a perfect label, fed a blank one, or spat out a page of command text — from its
+point of view all three are true. So after the test label, setup asks the one question the
+protocol cannot answer, and the three answers point at three different faults:
 
-**The label feeds but is completely blank.** This is the paper, and it is the most common
-first-time failure by a wide margin. Thermal printers have no ink; they mark heat-sensitive
-stock, on one side only. Ordinary paper labels, or a thermal roll loaded upside down, feed
-perfectly and stay white. Nothing in the protocol can catch this: asked directly, the printer
-reports paper loaded, head down and no error, because from its point of view that is all true.
+**Nothing, or a blank label.** This is the paper, and it is the most common first-time failure by
+a wide margin. Thermal printers have no ink; they mark heat-sensitive stock, on one side only.
+Ordinary paper labels, or a thermal roll loaded upside down, feed perfectly and stay white.
 
-**Stray characters, or pages of readable commands.** That one really is the command language.
-Change it in the printer's settings, where there is a test-page button.
+**It printed, but the output is wrong.** *That* one is the command language, and there are only
+two candidates — so the dialog offers to switch to the other and print another test.
+
+**It printed and looks right.** The printer is marked as confirmed. On Bluetooth, USB or a raw
+socket that is the only confirmation that exists anywhere: none of those protocols reports what
+the printer did with the bytes.
 
 ## How it works
 

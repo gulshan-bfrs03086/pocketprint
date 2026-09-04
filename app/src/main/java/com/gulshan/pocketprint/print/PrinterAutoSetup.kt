@@ -26,6 +26,27 @@ data class SetupStep(
     val detail: String? = null,
 )
 
+/**
+ * What the person holding the printer saw after the test label.
+ *
+ * The three answers point at three different faults, and telling them apart is
+ * the whole value of asking. Nothing at all is almost always the media - a
+ * thermal printer marks only heat-sensitive stock, on one side, and reports
+ * paper loaded and no error while feeding a blank label. Readable command text
+ * or stray characters is the dialect. A correct label is the only confirmation
+ * these transports can ever produce.
+ */
+enum class TestLabelOutcome {
+    /** The label came out and looks right. */
+    CORRECT,
+
+    /** Something printed, but it is command text or garbage. */
+    GARBLED,
+
+    /** The label fed through blank, or nothing happened at all. */
+    NOTHING,
+}
+
 data class SetupProgress(
     val steps: List<SetupStep>,
     val finished: Boolean = false,
@@ -73,8 +94,10 @@ class PrinterAutoSetup(private val context: Context) {
         private const val STEP_CONNECT = "connect"
         private const val STEP_DETECT = "detect"
         private const val STEP_CONFIGURE = "configure"
-        private const val STEP_TEST = "test"
         private const val STEP_SAVE = "save"
+
+        /** Public because the UI only asks "did it print?" if this step ran. */
+        const val STEP_TEST = "test"
 
         private const val ASSUMED_DPI = 203
     }

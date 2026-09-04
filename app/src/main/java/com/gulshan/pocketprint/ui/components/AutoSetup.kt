@@ -24,6 +24,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -31,8 +35,10 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.gulshan.pocketprint.model.MediaSize
 import com.gulshan.pocketprint.model.Printer
+import com.gulshan.pocketprint.print.PrinterAutoSetup
 import com.gulshan.pocketprint.print.SetupProgress
 import com.gulshan.pocketprint.print.StepState
+import com.gulshan.pocketprint.print.TestLabelOutcome
 
 /**
  * The entry point for one-tap setup. Deliberately prominent: for a thermal
@@ -144,8 +150,15 @@ fun AutoSetupPicker(
 fun AutoSetupDialog(
     progress: SetupProgress,
     onDismiss: () -> Unit,
+    onOutcome: (TestLabelOutcome) -> Unit,
+    alternateDialect: String?,
+    onRetestOtherDialect: () -> Unit,
 ) {
     val succeeded = progress.finished && progress.error == null
+    val printedTest = progress.steps.any {
+        it.id == PrinterAutoSetup.STEP_TEST && it.state == StepState.DONE
+    }
+    var answer by remember(progress.printer?.id) { mutableStateOf<TestLabelOutcome?>(null) }
 
     AlertDialog(
         onDismissRequest = { if (progress.finished) onDismiss() },
@@ -196,38 +209,12 @@ fun AutoSetupDialog(
                     }
                 }
 
-                if (succeeded) {
-                    // These two symptoms have different causes, and saying only
-                    // "change the language" for both sends people hunting through
-                    // dialects when the real answer is usually the paper. A
-                    // printer cannot detect the wrong stock: it reports paper
-                    // loaded and head down, and feeds a blank label quite happily.
-                    Text(
-                        "Nothing on the label, but it fed through?",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.padding(top = 8.dp),
-                    )
-                    Text(
-                        "That is the paper, not the printing. Thermal printers " +
-                            "mark only heat-sensitive stock, on one side. Check you " +
-                            "are using thermal labels and that the roll is not in " +
-                            "upside down. The printer cannot tell, so it reports " +
-                            "everything as fine.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Text(
-                        "Stray characters or pages of commands instead?",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.padding(top = 8.dp),
-                    )
-                    Text(
-                        "That one is the command language. Open the printer's " +
-                            "settings and change it.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                if (succeeded && printedTest) {
+                    TestLabelQuestion(
+                        answer = answer,
+                        alternateDialect = alternateDialect,
+                        onAnswer = { answer = it; onOutcome(it) },
+                        onRetest = { answer = null; onRetestOtherDialect() },
                     )
                 }
             }
@@ -237,6 +224,111 @@ fun AutoSetupDialog(
                 Text(if (succeeded) "Done" else "Close")
             }
         },
+    )
+}
+
+/**
+ * The one question the protocol cannot answer.
+ *
+ * A thermal printer reports paper loaded, head down and no error whether it
+ * just printed a perfect label, fed a blank one because the stock is ordinary
+ * paper, or spat out a page of command text because it is not listening in the
+ * dialect it was sent. Those three faults have nothing in common except that
+ * the printer cannot tell them apart — so the person holding the label is
+ * asked, and the answer is acted on.
+ *
+ * Not asking cost a whole field-test session. Six jobs reported as completed,
+ * the investigation went to the command language, and the fault was the paper.
+ */
+@Composable
+private fun TestLabelQuestion(
+    answer: TestLabelOutcome?,
+    alternateDialect: String?,
+    onAnswer: (TestLabelOutcome) -> Unit,
+    onRetest: () -> Unit,
+) {
+    when (answer) {
+        null -> {
+            Text(
+                "Did a label come out?",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(top = 12.dp),
+            )
+            Text(
+                "The printer cannot answer this one. Whatever happened, it " +
+                    "reports paper loaded, head down and no error.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            AnswerRow("It printed and looks right") { onAnswer(TestLabelOutcome.CORRECT) }
+            AnswerRow("It printed, but the output is wrong") {
+                onAnswer(TestLabelOutcome.GARBLED)
+            }
+            AnswerRow("Nothing, or a blank label") { onAnswer(TestLabelOutcome.NOTHING) }
+        }
+
+        TestLabelOutcome.CORRECT -> Advice(
+            "Confirmed.",
+            "This printer is now marked as confirmed by an actual label. That is " +
+                "the only confirmation Bluetooth and USB can give — neither " +
+                "protocol reports what the printer did with the bytes.",
+        )
+
+        TestLabelOutcome.NOTHING -> {
+            Advice(
+                "That is almost always the paper.",
+                "Thermal printers have no ink: they mark heat-sensitive stock, on " +
+                    "one side only. Ordinary paper labels, or a thermal roll " +
+                    "loaded upside down, feed perfectly and stay white. Check the " +
+                    "stock, then print another test from the printer's settings.",
+            )
+        }
+
+        TestLabelOutcome.GARBLED -> {
+            Advice(
+                "That is the command language.",
+                "The printer is not listening in the dialect it was sent, so it is " +
+                    "printing the commands instead of obeying them.",
+            )
+            if (alternateDialect != null) {
+                Button(
+                    onClick = onRetest,
+                    modifier = Modifier.padding(top = 8.dp),
+                ) {
+                    Text("Switch to $alternateDialect and try again")
+                }
+            } else {
+                Text(
+                    "Change it in the printer's settings, where there is a " +
+                        "test-page button.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AnswerRow(label: String, onClick: () -> Unit) {
+    TextButton(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
+        Text(label, modifier = Modifier.fillMaxWidth())
+    }
+}
+
+@Composable
+private fun Advice(heading: String, body: String) {
+    Text(
+        heading,
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.onSurface,
+        modifier = Modifier.padding(top = 12.dp),
+    )
+    Text(
+        body,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
 }
 

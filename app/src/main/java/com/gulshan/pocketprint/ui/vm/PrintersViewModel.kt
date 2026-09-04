@@ -24,6 +24,7 @@ import com.gulshan.pocketprint.print.JobListener
 import com.gulshan.pocketprint.print.PrintForegroundService
 import com.gulshan.pocketprint.print.PrinterAutoSetup
 import com.gulshan.pocketprint.print.SetupProgress
+import com.gulshan.pocketprint.print.TestLabelOutcome
 import com.gulshan.pocketprint.render.Spool
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -396,6 +397,51 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
             _setup.value = progress
             progress.printer?.let { printerRepo.save(it) }
         }
+    }
+
+    /**
+     * Records what the person holding the printer saw after the test label.
+     *
+     * This is the only confirmation a Bluetooth or USB printer can produce.
+     * The protocol cannot help: asked directly, a printer with the wrong stock
+     * loaded reports paper present, head down and no error, and feeds a blank
+     * label quite happily.
+     */
+    fun recordTestLabelOutcome(outcome: TestLabelOutcome) = viewModelScope.launch {
+        val printer = _setup.value?.printer ?: return@launch
+        val updated = printer.copy(testPrintConfirmed = outcome == TestLabelOutcome.CORRECT)
+        printerRepo.save(updated)
+        _setup.value = _setup.value?.copy(printer = updated)
+    }
+
+    /**
+     * The other dialect this printer might be listening in, or null when there
+     * is no sensible alternative to offer.
+     */
+    fun alternateDialect(printer: Printer): PrintLanguage? =
+        when (printer.capabilities.languages.firstOrNull()) {
+            PrintLanguage.TSPL -> PrintLanguage.ZPL
+            PrintLanguage.ZPL -> PrintLanguage.TSPL
+            else -> null
+        }
+
+    /**
+     * Switches a label printer to the other dialect and prints another test.
+     *
+     * Garbled output means the printer is not listening in the language it was
+     * sent, and for these printers there are only two candidates - so the fix
+     * is one tap away rather than a hunt through the settings screen.
+     */
+    fun retestWithOtherDialect() = viewModelScope.launch {
+        val printer = _setup.value?.printer ?: return@launch
+        val other = alternateDialect(printer) ?: return@launch
+        val updated = printer.copy(
+            capabilities = printer.capabilities.copy(languages = listOf(other)),
+            testPrintConfirmed = false,
+        )
+        printerRepo.save(updated)
+        _setup.value = _setup.value?.copy(printer = updated)
+        printTestPage(updated)
     }
 
     fun dismissSetup() { _setup.value = null }

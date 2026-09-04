@@ -41,6 +41,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -303,7 +304,13 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
     }
 
     setupProgress?.let { progress ->
-        AutoSetupDialog(progress = progress, onDismiss = { viewModel.dismissSetup() })
+        AutoSetupDialog(
+            progress = progress,
+            onDismiss = { viewModel.dismissSetup() },
+            onOutcome = { viewModel.recordTestLabelOutcome(it) },
+            alternateDialect = progress.printer?.let { viewModel.alternateDialect(it)?.name },
+            onRetestOtherDialect = { viewModel.retestWithOtherDialect() },
+        )
     }
 
     editing?.let { target ->
@@ -375,6 +382,16 @@ private fun PrinterRow(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+                // Worth showing, because for a Bluetooth or USB printer this is
+                // the only evidence that exists that it prints at all.
+                if (printer.testPrintConfirmed) {
+                    Text(
+                        "Confirmed by a test label",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF2E7D32),
+                        maxLines = 1,
+                    )
+                }
             }
             trailing()
         }
