@@ -41,6 +41,20 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
+/**
+ * A rendered preview, or the reason there is not one.
+ *
+ * The bitmap is the packed one-bit raster read back, not a second rendering of
+ * the source - so it shows the dithering and the lost hairlines rather than
+ * hiding them.
+ */
+data class PreviewState(
+    val printerName: String,
+    val loading: Boolean,
+    val bitmap: android.graphics.Bitmap? = null,
+    val message: String? = null,
+)
+
 data class DiscoveryState(
     val scanning: Boolean = false,
     val network: List<Printer> = emptyList(),
@@ -78,6 +92,9 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
     val options: StateFlow<PrintOptions> = _options.asStateFlow()
 
     private var scanJob: Job? = null
+
+    private val _preview = MutableStateFlow<PreviewState?>(null)
+    val preview: StateFlow<PreviewState?> = _preview.asStateFlow()
 
     private val _setup = MutableStateFlow<SetupProgress?>(null)
     val setup: StateFlow<SetupProgress?> = _setup.asStateFlow()
@@ -456,6 +473,46 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
         _setup.value = _setup.value?.copy(printer = updated)
         printTestPage(updated)
     }
+
+    /**
+     * Renders the first page the way the chosen printer will mark it.
+     *
+     * Per printer rather than per document, because the answer depends entirely
+     * on the printer: its dialect decides whether there is anything to show,
+     * and its head width and dpi decide what the page is squeezed into.
+     */
+    fun previewOn(printer: Printer) = viewModelScope.launch {
+        val document = _selectedDocument.value ?: return@launch
+        _preview.value = PreviewState(printerName = printer.displayName, loading = true)
+
+        val outcome = runCatching { engine.preview(printer, document, _options.value) }
+        _preview.value = outcome.fold(
+            onSuccess = { bitmap ->
+                PreviewState(
+                    printerName = printer.displayName,
+                    loading = false,
+                    bitmap = bitmap,
+                    message = if (bitmap == null) {
+                        "${printer.displayName} takes the document as it is, so there " +
+                            "is nothing here that the document itself does not already " +
+                            "show. Preview is for printers that reduce a page to one " +
+                            "bit per dot."
+                    } else {
+                        null
+                    },
+                )
+            },
+            onFailure = { failure ->
+                PreviewState(
+                    printerName = printer.displayName,
+                    loading = false,
+                    message = failure.message ?: "The page could not be rendered.",
+                )
+            },
+        )
+    }
+
+    fun dismissPreview() { _preview.value = null }
 
     fun dismissSetup() { _setup.value = null }
 

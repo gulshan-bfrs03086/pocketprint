@@ -1,6 +1,7 @@
 package com.gulshan.pocketprint.render
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.net.Uri
 import com.gulshan.pocketprint.label.EscPos
 import com.gulshan.pocketprint.label.Tspl
@@ -47,6 +48,54 @@ class RenderPipeline(
 
         val pdf = toPdf(source, options)
         return convert(pdf, target, printer, options)
+    }
+
+    /**
+     * The first page exactly as a thermal printer will mark it.
+     *
+     * Nothing showed this before, and the system print dialog's preview is no
+     * substitute: it shows the source PDF, not what happens to it on the way to
+     * a one-bit head. Everything that goes wrong between the two - a photo that
+     * dithers to mud, hairlines that fall below the threshold and vanish, a
+     * page scaled to a 4-inch head - is invisible until a label has been
+     * consumed finding out.
+     *
+     * The pipeline already produced this exact bitmap on every print and threw
+     * it away, so the only new thing here is keeping it.
+     *
+     * Null for printers that take PDF or PWG raster directly: those receive the
+     * document essentially as it is, so there is nothing this could show that
+     * the document itself does not.
+     */
+    suspend fun previewFirstPage(
+        source: SourceDocument,
+        printer: Printer,
+        options: PrintOptions,
+    ): Bitmap? = withContext(Dispatchers.IO) {
+        val target = chooseLanguage(printer)
+        if (!target.isRaster || target == PrintLanguage.PWG_RASTER) return@withContext null
+
+        val pdf = toPdf(source, options)
+        try {
+            val width = printer.capabilities.rasterWidthDots ?: 576
+            val dpi = printer.capabilities.resolutionsDpi.firstOrNull() ?: 203
+            var preview: Bitmap? = null
+            PdfRasterizer.forEachPage(
+                file = pdf.file,
+                dpi = dpi,
+                targetWidthPx = width,
+                pageRange = 1..1,
+            ) { _, page ->
+                // Same call the encoders make, with the same dither setting, so
+                // this is the stream's own bits rather than a second rendering
+                // that might disagree with it.
+                val packed = Raster.toPackedMono(page, dither = options.dither)
+                preview = Raster.fromPackedMono(packed, page.width, page.height)
+            }
+            preview
+        } finally {
+            pdf.cleanupIfTemporary()
+        }
     }
 
     /** Renders already-prepared PDF bytes, used by the system print service. */

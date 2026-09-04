@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Usb
+import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -58,6 +59,7 @@ import com.gulshan.pocketprint.ui.components.AutoSetupDialog
 import com.gulshan.pocketprint.ui.components.AutoSetupPicker
 import com.gulshan.pocketprint.ui.components.ChipRow
 import com.gulshan.pocketprint.ui.components.InfoBanner
+import com.gulshan.pocketprint.ui.components.PrintPreviewDialog
 import com.gulshan.pocketprint.ui.components.PrinterSettingsDialog
 import com.gulshan.pocketprint.ui.components.SectionHeader
 import com.gulshan.pocketprint.ui.components.WarningBanner
@@ -77,6 +79,7 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
     var pickingForSetup by remember { mutableStateOf(false) }
     val setupProgress by viewModel.setup.collectAsStateWithLifecycle()
     val storageProblems by viewModel.storageProblems.collectAsStateWithLifecycle()
+    val preview by viewModel.preview.collectAsStateWithLifecycle()
     val setupStock by viewModel.setupStock.collectAsStateWithLifecycle()
 
     val pickDocument = rememberLauncherForActivityResult(
@@ -217,6 +220,15 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
                 printer = printer,
                 trailing = {
                     Row {
+                        // Tapping the row prints, which on a thermal printer
+                        // consumes a label. Looking first should be one tap
+                        // away from that, not buried.
+                        IconButton(
+                            onClick = { viewModel.previewOn(printer) },
+                            enabled = document != null,
+                        ) {
+                            Icon(Icons.Filled.Visibility, contentDescription = "Preview")
+                        }
                         IconButton(onClick = { editing = printer }) {
                             Icon(Icons.Filled.Tune, contentDescription = "Printer settings")
                         }
@@ -311,6 +323,10 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
                 viewModel.startAutoSetup(it)
             },
         )
+    }
+
+    preview?.let { state ->
+        PrintPreviewDialog(state = state, onDismiss = { viewModel.dismissPreview() })
     }
 
     setupProgress?.let { progress ->

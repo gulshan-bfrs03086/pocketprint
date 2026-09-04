@@ -48,6 +48,11 @@ Latin text keeps the fast, crisp printer-font path.
 
 **Print receipts from a handheld.** ESC/POS to any 58 mm or 80 mm thermal printer.
 
+**See what the printer will actually print.** Preview shows the packed one-bit raster on its way
+to the head — not a second, prettier rendering of the document. A photo that dithers to mud and a
+hairline that falls under the threshold and disappears both show up before a label is consumed
+finding out.
+
 **Print from any app to a Bluetooth printer.** Share a PDF from Drive, hit Print in Chrome, or
 use the system print dialog — the app converts whatever Android hands it into the printer's own
 command language.
@@ -216,7 +221,7 @@ stream under `getExternalFilesDir` for byte-level inspection. On a 4x6 label at 
 US Letter page renders to 812 x 1051 dots at 30.02% ink and emits exactly 107,357 bytes of
 TSPL. That makes it quick to tell a rendering bug from a printer that is not marking.
 
-**120 unit tests** cover the IPP codec (request framing, multi-value and resolution decoding,
+**128 unit tests** cover the IPP codec (request framing, multi-value and resolution decoding,
 unknown-tag tolerance), PWG raster round trips including band-boundary equivalence, PWG media
 name parsing, the exact TSPL output, which document types the exported share target will accept,
 the IPP job-state decoding that decides whether a job may be called printed, the per-printer job
@@ -224,7 +229,8 @@ queue that keeps two jobs out of one RFCOMM slot, the rules that decide what the
 dialog is told about a printer, the stall guard that pulls a write out of a printer that has
 stopped reading, what the printer report does and does not disclose, and the versioned store that
 keeps one unreadable record from taking every saved printer with it, and which label text the
-printer's own fonts can carry. CI builds and tests both variants on every push.
+printer's own fonts can carry, and the bit order and polarity of the mono raster. CI builds and
+tests both variants on every push.
 
 **What isn't proven.** Coverage beyond that one printer is thin — that's the real gap, and no
 amount of code review closes it. Office documents need an external converter (a Gotenberg

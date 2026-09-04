@@ -240,6 +240,16 @@ class PrintEngine(
         }
     }
 
+    /**
+     * The first page as the printer will actually mark it, or null when there
+     * is nothing useful to show. See [RenderPipeline.previewFirstPage].
+     */
+    suspend fun preview(
+        printer: Printer,
+        source: SourceDocument,
+        options: PrintOptions,
+    ): android.graphics.Bitmap? = pipeline.previewFirstPage(source, printer, options)
+
     suspend fun print(
         printer: Printer,
         source: SourceDocument,
