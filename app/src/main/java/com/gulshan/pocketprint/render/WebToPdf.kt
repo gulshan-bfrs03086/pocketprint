@@ -6,6 +6,7 @@ import android.print.PrintAttributes
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import com.gulshan.pocketprint.model.Orientation
+import com.gulshan.pocketprint.print.Diagnostics
 import com.gulshan.pocketprint.model.PrintLanguage
 import com.gulshan.pocketprint.model.PrintOptions
 import kotlinx.coroutines.Dispatchers
@@ -22,6 +23,8 @@ import kotlin.coroutines.resumeWithException
  * dispatcher and suspends until the adapter reports back.
  */
 object WebToPdf {
+
+    private const val TAG = "WebToPdf"
 
     suspend fun fromUrl(
         context: Context,
@@ -67,15 +70,41 @@ object WebToPdf {
 
                         // Give layout and late images one frame to settle.
                         view.postDelayed({
-                            val adapter = view.createPrintDocumentAdapter("PocketPrint")
-                            PdfPrint(printAttributes(options)).print(adapter, output) { file, err ->
+                            // Two paths, tried in that order. The print adapter
+                            // produces much better output - it is the only one
+                            // that honours CSS print rules and page breaks -
+                            // but reaching it needs a class planted inside the
+                            // android.print package, which is unsupported and
+                            // has no replacement. When that stops working, the
+                            // canvas path keeps links and HTML printing rather
+                            // than every one of them failing at once.
+                            val finish: (java.io.File?, String?) -> Unit = { file, error ->
+                                val done = file != null || runCatching {
+                                    Diagnostics.record(
+                                        TAG,
+                                        "print adapter path unavailable ($error); " +
+                                            "falling back to the canvas renderer",
+                                    )
+                                    WebCanvasToPdf.render(view, output, options)
+                                }.getOrDefault(false)
+
                                 view.destroy()
                                 when {
-                                    file != null && cont.isActive -> cont.resume(Unit)
+                                    done && cont.isActive -> cont.resume(Unit)
                                     cont.isActive -> cont.resumeWithException(
-                                        IllegalStateException(err ?: "Web render failed"),
+                                        IllegalStateException(error ?: "Web render failed"),
                                     )
                                 }
+                            }
+
+                            runCatching {
+                                val adapter = view.createPrintDocumentAdapter("PocketPrint")
+                                PdfPrint(printAttributes(options)).print(adapter, output, finish)
+                            }.onFailure { unavailable ->
+                                // A blocked non-SDK path fails here, when the
+                                // planted class is first linked, rather than in
+                                // the callback.
+                                finish(null, unavailable.message)
                             }
                         }, 350)
                     }

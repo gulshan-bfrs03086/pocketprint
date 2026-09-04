@@ -200,12 +200,21 @@ export JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home
 ./gradlew assembleLegacyDebug     # Android 7.0+
 ./gradlew testLegacyDebugUnitTest testModernDebugUnitTest
 ./scripts/check-required-features.sh   # no required hardware features
+./scripts/check-platform-packages.sh   # one non-SDK dependency, and it has a fallback
 ```
 
 That last check is a build gate, not a nicety. Android refuses to install a package whose
 required hardware features the device lacks, and reports only a generic "Can't install the app".
 This app once became uninstallable on a rugged terminal because `ACCESS_FINE_LOCATION` made the
 build tools imply `android.hardware.location` as **required**. CI now fails on any such feature.
+
+The second check guards the one place this app reaches outside the public SDK. WebView's
+`PrintDocumentAdapter` is the only thing that paginates HTML properly, and driving it without the
+system print dialog needs a class placed inside the `android.print` package, where the result
+callbacks have package-private constructors. That works today, is unsupported, and would take
+every shared link and HTML document down together the day it stops. So it has a public-API
+fallback — `PdfDocument` and `WebView.draw`, worse output but a document that prints — and the
+check fails if a second platform-package class appears or if the fallback stops being wired in.
 
 Versions are built on `release/X.Y` branches and reach `main` by merge, so `main` always holds the
 latest — see [docs/RELEASING.md](docs/RELEASING.md). The version is declared once, in
