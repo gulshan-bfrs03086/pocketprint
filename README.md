@@ -210,13 +210,14 @@ stream under `getExternalFilesDir` for byte-level inspection. On a 4x6 label at 
 US Letter page renders to 812 x 1051 dots at 30.02% ink and emits exactly 107,357 bytes of
 TSPL. That makes it quick to tell a rendering bug from a printer that is not marking.
 
-**92 unit tests** cover the IPP codec (request framing, multi-value and resolution decoding,
+**108 unit tests** cover the IPP codec (request framing, multi-value and resolution decoding,
 unknown-tag tolerance), PWG raster round trips including band-boundary equivalence, PWG media
 name parsing, the exact TSPL output, which document types the exported share target will accept,
 the IPP job-state decoding that decides whether a job may be called printed, the per-printer job
 queue that keeps two jobs out of one RFCOMM slot, the rules that decide what the system print
 dialog is told about a printer, the stall guard that pulls a write out of a printer that has
-stopped reading, and what the printer report does and does not disclose. CI builds and tests both
+stopped reading, what the printer report does and does not disclose, and the versioned store that
+keeps one unreadable record from taking every saved printer with it. CI builds and tests both
 variants on every push.
 
 **What isn't proven.** Coverage beyond that one printer is thin — that's the real gap, and no

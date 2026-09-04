@@ -6,6 +6,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.gulshan.pocketprint.ServiceLocator
 import com.gulshan.pocketprint.data.AppSettings
+import com.gulshan.pocketprint.data.StorageHealth
 import com.gulshan.pocketprint.label.EscPos
 import com.gulshan.pocketprint.label.Tspl
 import com.gulshan.pocketprint.label.Zpl
@@ -56,6 +57,13 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
     private val jobRepo = ServiceLocator.jobRepository(app)
     private val settingsRepo = ServiceLocator.settingsRepository(app)
     private val engine = ServiceLocator.printEngine(app)
+
+    /**
+     * Anything the app saved and can no longer read. Empty in every normal
+     * session; shown loudly when it is not, because the user has no other way
+     * of finding out that a saved printer went missing.
+     */
+    val storageProblems: StateFlow<Map<String, String>> = StorageHealth.problems
 
     private val _discovery = MutableStateFlow(DiscoveryState())
     val discovery: StateFlow<DiscoveryState> = _discovery.asStateFlow()

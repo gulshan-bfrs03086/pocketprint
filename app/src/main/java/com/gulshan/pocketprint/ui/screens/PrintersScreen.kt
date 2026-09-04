@@ -60,6 +60,7 @@ import com.gulshan.pocketprint.ui.components.ChipRow
 import com.gulshan.pocketprint.ui.components.InfoBanner
 import com.gulshan.pocketprint.ui.components.PrinterSettingsDialog
 import com.gulshan.pocketprint.ui.components.SectionHeader
+import com.gulshan.pocketprint.ui.components.WarningBanner
 import com.gulshan.pocketprint.ui.vm.PrintersViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -75,6 +76,7 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
     var editing by remember { mutableStateOf<Printer?>(null) }
     var pickingForSetup by remember { mutableStateOf(false) }
     val setupProgress by viewModel.setup.collectAsStateWithLifecycle()
+    val storageProblems by viewModel.storageProblems.collectAsStateWithLifecycle()
     val setupStock by viewModel.setupStock.collectAsStateWithLifecycle()
 
     val pickDocument = rememberLauncherForActivityResult(
@@ -89,6 +91,10 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
             .padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        items(storageProblems.entries.toList(), key = { it.key }) { problem ->
+            WarningBanner(problem.value, Modifier.padding(top = 16.dp))
+        }
+
         item {
             AutoSetupCard(
                 candidateCount = discovery.bluetooth.size,
