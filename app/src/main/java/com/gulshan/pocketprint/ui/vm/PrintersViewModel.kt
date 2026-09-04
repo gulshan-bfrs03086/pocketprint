@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.gulshan.pocketprint.ServiceLocator
 import com.gulshan.pocketprint.data.AppSettings
 import com.gulshan.pocketprint.data.StorageHealth
+import com.gulshan.pocketprint.permissions.AppPermissions
 import com.gulshan.pocketprint.label.EscPos
 import com.gulshan.pocketprint.label.Tspl
 import com.gulshan.pocketprint.label.Zpl
@@ -36,6 +37,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -117,6 +119,16 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
 
     val settings: StateFlow<AppSettings> = settingsRepo.settings
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AppSettings())
+
+    /**
+     * Null until the stored settings have actually been read.
+     *
+     * Without the third state the welcome screen flashes up for every existing
+     * user on every launch, for as long as it takes DataStore to answer.
+     */
+    val firstRunDone: StateFlow<Boolean?> = settingsRepo.settings
+        .map { it.firstRunDone }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     init {
         viewModelScope.launch { _options.value = settingsRepo.current().toPrintOptions() }
@@ -621,6 +633,21 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
     /** Paired Bluetooth devices are the only sensible auto-setup targets. */
     fun autoSetupCandidates(): List<Printer> =
         ServiceLocator.bluetoothDiscovery(getApplication()).bondedDevices()
+
+    fun completeFirstRun() = updateSettings { it.copy(firstRunDone = true) }
+
+    /**
+     * Remembers that a permission was actually put to the user, which is what
+     * separates "never asked" from "refused for good".
+     */
+    fun rememberAsked(permissions: List<String>) = updateSettings { current ->
+        current.copy(
+            askedForBluetooth = current.askedForBluetooth ||
+                permissions.any { it in AppPermissions.bluetooth },
+            askedForNotifications = current.askedForNotifications ||
+                permissions.any { it in AppPermissions.notifications },
+        )
+    }
 
     fun updateSettings(transform: (AppSettings) -> AppSettings) = viewModelScope.launch {
         settingsRepo.update(transform)

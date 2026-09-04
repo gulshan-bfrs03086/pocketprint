@@ -137,6 +137,19 @@ data class AppSettings(
     val defaultColor: Boolean = false,
     val exposeToSystemPrint: Boolean = true,
     val ditherImages: Boolean = true,
+
+    /** The welcome has been shown, so it is not shown again. */
+    val firstRunDone: Boolean = false,
+
+    /**
+     * Whether these permissions have ever actually been put to the user.
+     *
+     * Needed because a permission that has never been asked for looks exactly
+     * like one refused twice - not granted, no rationale to show - and only one
+     * of those two should send somebody to app settings.
+     */
+    val askedForBluetooth: Boolean = false,
+    val askedForNotifications: Boolean = false,
 ) {
     fun toPrintOptions(): PrintOptions = PrintOptions(
         mediaSize = MediaSize.byId(defaultMediaId) ?: MediaSize.A4,

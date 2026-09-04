@@ -1,5 +1,6 @@
 package com.gulshan.pocketprint.ui.screens
 
+import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
@@ -41,6 +42,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -49,11 +52,18 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.gulshan.pocketprint.model.ColorMode
 import com.gulshan.pocketprint.model.ConnectionKind
 import com.gulshan.pocketprint.model.MediaSize
 import com.gulshan.pocketprint.model.Printer
+import com.gulshan.pocketprint.permissions.AppPermissions
+import com.gulshan.pocketprint.permissions.PermissionStatus
+import com.gulshan.pocketprint.permissions.PrintServiceState
+import com.gulshan.pocketprint.permissions.rememberPermissionRequester
 import com.gulshan.pocketprint.ui.components.AutoSetupCard
 import com.gulshan.pocketprint.ui.components.AutoSetupDialog
 import com.gulshan.pocketprint.ui.components.AutoSetupPicker
@@ -80,6 +90,31 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
     val setupProgress by viewModel.setup.collectAsStateWithLifecycle()
     val storageProblems by viewModel.storageProblems.collectAsStateWithLifecycle()
     val preview by viewModel.preview.collectAsStateWithLifecycle()
+    val settings by viewModel.settings.collectAsStateWithLifecycle()
+
+    // Asked for where they are used, not on the way in. onAsked is what lets
+    // the app later tell "never asked" from "refused for good".
+    val permissions = rememberPermissionRequester(onAsked = { viewModel.rememberAsked(it) })
+
+    // Permission state and the print-service switch both change outside this
+    // app, in Settings, so they are re-read whenever the screen comes back.
+    var systemEpoch by remember { mutableIntStateOf(0) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) systemEpoch++
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    val activity = context as? Activity
+    val bluetoothStatus = remember(systemEpoch, settings.askedForBluetooth) {
+        activity?.let {
+            AppPermissions.status(it, AppPermissions.bluetooth, settings.askedForBluetooth)
+        } ?: PermissionStatus.ASKABLE
+    }
+    val printServiceStatus = remember(systemEpoch) { PrintServiceState.status(context) }
     val setupStock by viewModel.setupStock.collectAsStateWithLifecycle()
 
     val pickDocument = rememberLauncherForActivityResult(
@@ -98,17 +133,42 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
             WarningBanner(problem.value, Modifier.padding(top = 16.dp))
         }
 
+        // The state the old first-frame request left people in, with no way to
+        // find out and no way out. Android will not ask again after two
+        // refusals; app settings is the only route.
+        if (bluetoothStatus == PermissionStatus.BLOCKED) {
+            item {
+                Column(Modifier.padding(top = 16.dp)) {
+                    WarningBanner(
+                        "PocketPrint cannot see or reach Bluetooth printers, because " +
+                            "the Bluetooth permission was turned down. Android will " +
+                            "not ask again, so it has to be granted in app settings.",
+                    )
+                    Button(
+                        onClick = { AppPermissions.openAppSettings(context) },
+                        modifier = Modifier.padding(top = 8.dp),
+                    ) { Text("Open app settings") }
+                }
+            }
+        }
+
         item {
             AutoSetupCard(
                 candidateCount = discovery.bluetooth.size,
                 stock = setupStock,
                 onStockChange = { viewModel.setSetupStock(it) },
                 onStart = {
-                    val candidates = viewModel.autoSetupCandidates()
-                    if (candidates.size == 1) {
-                        viewModel.startAutoSetup(candidates.first())
-                    } else {
-                        pickingForSetup = true
+                    // The dialog now arrives immediately after somebody taps
+                    // "set up my printer", which is a dialog about the thing
+                    // they just asked for rather than about nothing.
+                    permissions.ensure(AppPermissions.bluetooth) { granted ->
+                        if (!granted) return@ensure
+                        val candidates = viewModel.autoSetupCandidates()
+                        if (candidates.size == 1) {
+                            viewModel.startAutoSetup(candidates.first())
+                        } else {
+                            pickingForSetup = true
+                        }
                     }
                 },
                 modifier = Modifier.padding(top = 16.dp),
@@ -238,7 +298,15 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
                     }
                 },
                 enabled = document != null,
-                onClick = { viewModel.print(printer) },
+                onClick = {
+                    // Asked for here because this is when a job is about to run
+                    // in the background, and refused or not the job still goes:
+                    // the notification is how progress and Cancel are shown, not
+                    // something printing depends on.
+                    permissions.ensure(AppPermissions.notifications) {
+                        viewModel.print(printer)
+                    }
+                },
                 subtitleOverride = if (document == null) {
                     "Choose a document first"
                 } else {
@@ -263,7 +331,13 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
                 if (discovery.scanning) {
                     CircularProgressIndicator(Modifier.padding(8.dp), strokeWidth = 2.dp)
                 } else {
-                    IconButton(onClick = { viewModel.startScan() }) {
+                    IconButton(
+                        onClick = {
+                            permissions.ensure(AppPermissions.bluetooth) { granted ->
+                                if (granted) viewModel.startScan()
+                            }
+                        },
+                    ) {
                         Icon(Icons.Filled.Refresh, contentDescription = "Scan")
                     }
                 }
@@ -295,11 +369,27 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
 
         item {
             SectionHeader("System printing")
-            InfoBanner(
-                "To print from other apps, turn PocketPrint on under " +
-                    "Settings > Connected devices > Printing. Saved printers appear " +
-                    "in every app's print dialog, including Bluetooth ones.",
-            )
+            when (printServiceStatus) {
+                PrintServiceState.Status.ENABLED -> InfoBanner(
+                    "PocketPrint is switched on as a print service. Saved printers " +
+                        "appear in every app's print dialog, including Bluetooth ones.",
+                )
+                PrintServiceState.Status.DISABLED -> WarningBanner(
+                    "PocketPrint is not switched on as a print service, so it will " +
+                        "not appear in other apps' print dialogs. Turn it on under " +
+                        "Settings > Connected devices > Printing.",
+                )
+                // Reading that switch is not permitted on every Android
+                // version, and claiming it is off when it might be on would
+                // send people to fix something already working.
+                PrintServiceState.Status.UNKNOWN -> InfoBanner(
+                    "To print from other apps, turn PocketPrint on under " +
+                        "Settings > Connected devices > Printing. Saved printers " +
+                        "appear in every app's print dialog, including Bluetooth " +
+                        "ones. This version of Android will not tell PocketPrint " +
+                        "whether the switch is already on.",
+                )
+            }
             Button(
                 onClick = {
                     runCatching {

@@ -179,7 +179,13 @@ install on devices without GPS, a camera or a touchscreen.
 > different package name, the first signed release installs *alongside* it rather than over it.
 
 Then turn the print service on once, under **Settings → Connected devices → Printing →
-PocketPrint**. There's a button in the app that takes you straight there.
+PocketPrint**. There's a button in the app that takes you straight there, and the app tells you
+whether the switch is already on — or says plainly that this version of Android will not let it
+find out.
+
+PocketPrint asks for nothing on first launch. Each permission is requested at the moment it is
+needed: Bluetooth when you set up a printer, notifications when you print. If one has been
+refused to the point where Android stops asking, the app says so and offers the way back.
 
 ## Build
 
@@ -227,7 +233,7 @@ stream under `getExternalFilesDir` for byte-level inspection. On a 4x6 label at 
 US Letter page renders to 812 x 1051 dots at 30.02% ink and emits exactly 107,357 bytes of
 TSPL. That makes it quick to tell a rendering bug from a printer that is not marking.
 
-**160 unit tests** cover the IPP codec (request framing, multi-value and resolution decoding,
+**178 unit tests** cover the IPP codec (request framing, multi-value and resolution decoding,
 unknown-tag tolerance), PWG raster round trips including band-boundary equivalence, PWG media
 name parsing, the exact TSPL output, which document types the exported share target will accept,
 the IPP job-state decoding that decides whether a job may be called printed, the per-printer job
@@ -236,8 +242,9 @@ dialog is told about a printer, the stall guard that pulls a write out of a prin
 stopped reading, what the printer report does and does not disclose, and the versioned store that
 keeps one unreadable record from taking every saved printer with it, and which label text the
 printer's own fonts can carry, the bit order and polarity of the mono raster, and the media
-sensing and darkness commands for both label dialects, and the failure messages turned into
-advice. CI builds and tests both variants on every push.
+sensing and darkness commands for both label dialects, the failure messages turned into advice,
+and the two permission readings where "unknown" must not be reported as "no". CI builds and tests
+both variants on every push.
 
 **What isn't proven.** Coverage beyond that one printer is thin — that's the real gap, and no
 amount of code review closes it. Office documents need an external converter (a Gotenberg
