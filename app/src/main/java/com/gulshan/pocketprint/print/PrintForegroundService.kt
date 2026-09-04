@@ -218,6 +218,13 @@ class PrintForegroundService : Service() {
             ),
         )
 
+        // Post before the first byte moves, because opening the connection is
+        // itself something that can hang - a Bluetooth printer that is switched
+        // off, most obviously - and this is the notification that carries the
+        // Cancel action. Waiting for onProgress would leave exactly the case
+        // that most needs cancelling without a way to cancel it.
+        notify(document.displayName, "Connecting to ${printer.displayName}", 0)
+
         val result = try {
             ServiceLocator.printEngine(applicationContext).print(
                 printer = printer,
