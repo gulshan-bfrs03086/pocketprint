@@ -233,7 +233,7 @@ stream under `getExternalFilesDir` for byte-level inspection. On a 4x6 label at 
 US Letter page renders to 812 x 1051 dots at 30.02% ink and emits exactly 107,357 bytes of
 TSPL. That makes it quick to tell a rendering bug from a printer that is not marking.
 
-**178 unit tests** cover the IPP codec (request framing, multi-value and resolution decoding,
+**188 unit tests** cover the IPP codec (request framing, multi-value and resolution decoding,
 unknown-tag tolerance), PWG raster round trips including band-boundary equivalence, PWG media
 name parsing, the exact TSPL output, which document types the exported share target will accept,
 the IPP job-state decoding that decides whether a job may be called printed, the per-printer job
@@ -243,8 +243,9 @@ stopped reading, what the printer report does and does not disclose, and the ver
 keeps one unreadable record from taking every saved printer with it, and which label text the
 printer's own fonts can carry, the bit order and polarity of the mono raster, and the media
 sensing and darkness commands for both label dialects, the failure messages turned into advice,
-and the two permission readings where "unknown" must not be reported as "no". CI builds and tests
-both variants on every push.
+the two permission readings where "unknown" must not be reported as "no", and the rule that
+decides when a socket is bound to the local network. CI builds and tests both variants on every
+push.
 
 **What isn't proven.** Coverage beyond that one printer is thin — that's the real gap, and no
 amount of code review closes it. Office documents need an external converter (a Gotenberg

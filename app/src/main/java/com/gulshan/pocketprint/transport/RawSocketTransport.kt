@@ -1,6 +1,8 @@
 package com.gulshan.pocketprint.transport
 
+import android.content.Context
 import com.gulshan.pocketprint.model.PrinterAddress
+import com.gulshan.pocketprint.net.LocalNetwork
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.InputStream
@@ -16,6 +18,8 @@ import java.net.Socket
 class RawSocketTransport(
     private val address: PrinterAddress.Raw,
     private val connectTimeoutMs: Int = 6_000,
+    /** Only for finding the local network; null means use the default one. */
+    private val context: Context? = null,
 ) : PrinterTransport {
 
     private var socket: Socket? = null
@@ -29,6 +33,10 @@ class RawSocketTransport(
             s.tcpNoDelay = true
             s.keepAlive = true
             s.soTimeout = 15_000
+            // Before connect, because a socket can only be bound while it is
+            // still unconnected - and after connect it is already on the wrong
+            // network with nothing to say so but a timeout.
+            context?.let { LocalNetwork.bind(it, s) }
             s.connect(InetSocketAddress(address.host, address.port), connectTimeoutMs)
             socket = s
             out = s.getOutputStream()

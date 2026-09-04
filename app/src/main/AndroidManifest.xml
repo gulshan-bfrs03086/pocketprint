@@ -7,10 +7,14 @@
          CHANGE_WIFI_MULTICAST_STATE is here for the multicast lock mDNS
          discovery holds while it browses; without it the Wi-Fi chip filters the
          multicast traffic away and no printer is ever found. ACCESS_WIFI_STATE
-         and ACCESS_NETWORK_STATE are not needed for that, and nothing here
-         inspects the network state, so they are not asked for. -->
+         is not needed for that and is not asked for. -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+    <!-- Back, and this time something reads it. A printer-only access point has
+         no internet, so Android keeps cellular as the default network and a
+         socket opened without saying otherwise never reaches the printer.
+         Finding the Wi-Fi network to bind to needs this. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <!-- Bluetooth thermal / label printers. The split permissions (API 31+) are
          all this flavour needs; the legacy flavour adds the older ones. -->

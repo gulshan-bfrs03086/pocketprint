@@ -10,6 +10,7 @@ import com.gulshan.pocketprint.model.PrinterAddress
 import com.gulshan.pocketprint.model.PrinterCapabilities
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.Dns
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -17,6 +18,7 @@ import okhttp3.RequestBody
 import okio.BufferedSink
 import java.io.InputStream
 import java.util.concurrent.TimeUnit
+import java.net.InetAddress
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -26,8 +28,50 @@ import java.util.concurrent.atomic.AtomicInteger
 class IppClient(
     private val http: OkHttpClient = defaultClient(),
     private val userName: String = "pocketprint",
+    /**
+     * Needed only to find the local network. Null keeps the old behaviour of
+     * using whatever network Android considers default, which is right for
+     * every case except the one below.
+     */
+    private val context: android.content.Context? = null,
 ) {
     private val requestIds = AtomicInteger(1)
+
+    @Volatile private var boundNetwork: android.net.Network? = null
+    @Volatile private var boundClient: OkHttpClient? = null
+
+    /**
+     * The client to use for this request.
+     *
+     * On a printer-only access point Android keeps cellular as the default
+     * network, and an HTTP call made without saying otherwise goes out over
+     * mobile data looking for 192.168.1.50. Both halves matter: the socket
+     * factory puts the connection on the right interface, and the DNS resolver
+     * has to go with it, or a printer named rather than numbered is looked up
+     * on the wrong network.
+     *
+     * Rebuilt only when the network changes; OkHttp shares the connection pool
+     * and dispatcher through newBuilder, so this is cheap.
+     */
+    private fun client(): OkHttpClient {
+        val ctx = context ?: return http
+        val network = com.gulshan.pocketprint.net.LocalNetwork.preferred(ctx) ?: return http
+
+        boundClient?.let { if (boundNetwork == network) return it }
+
+        val bound = http.newBuilder()
+            .socketFactory(network.socketFactory)
+            .dns(
+                object : Dns {
+                    override fun lookup(hostname: String): List<InetAddress> =
+                        network.getAllByName(hostname).toList()
+                },
+            )
+            .build()
+        boundNetwork = network
+        boundClient = bound
+        return bound
+    }
 
     companion object {
         private val IPP_MEDIA = "application/ipp".toMediaType()
@@ -206,7 +250,7 @@ class IppClient(
             .header("User-Agent", "PocketPrint/1.0")
             .build()
 
-        http.newCall(request).execute().use { response ->
+        client().newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
                 throw IppException("HTTP ${response.code} from ${address.httpUrl}")
             }

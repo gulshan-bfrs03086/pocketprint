@@ -4,6 +4,7 @@ import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.os.Build
+import com.gulshan.pocketprint.net.LocalNetwork
 import com.gulshan.pocketprint.render.Spool
 
 class PocketPrintApplication : Application() {
@@ -15,6 +16,10 @@ class PocketPrintApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
+        // Registered here rather than at print time because a network callback
+        // takes a moment to deliver its first answer, and the first thing this
+        // app does after launch is often print.
+        LocalNetwork.start(this)
         // Spool files are cache-only; anything left behind is from a crash.
         Spool.clear(this)
     }

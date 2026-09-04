@@ -46,8 +46,10 @@ object ServiceLocator {
                 .also { settingsRepository = it }
         }
 
-    fun ippClient(): IppClient =
-        ippClient ?: synchronized(this) { ippClient ?: IppClient().also { ippClient = it } }
+    fun ippClient(context: Context): IppClient =
+        ippClient ?: synchronized(this) {
+            ippClient ?: IppClient(context = context.applicationContext).also { ippClient = it }
+        }
 
     fun renderPipeline(context: Context): RenderPipeline =
         renderPipeline ?: synchronized(this) {
@@ -62,7 +64,7 @@ object ServiceLocator {
             printEngine ?: PrintEngine(
                 context.applicationContext,
                 renderPipeline(context),
-                ippClient(),
+                ippClient(context),
             ).also { printEngine = it }
         }
 
