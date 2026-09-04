@@ -29,7 +29,7 @@ class RenderPipeline(
     private val officeConverter: () -> OfficeConverter = { NoOfficeConverter },
 ) {
 
-    private val rawLabelExtensions = setOf("tspl", "zpl", "escpos", "prn", "bin")
+    private val rawLabelExtensions = RAW_LABEL_EXTENSIONS
 
     suspend fun render(
         source: SourceDocument,
@@ -127,6 +127,35 @@ class RenderPipeline(
                 "Don't know how to print ${source.displayName} (${source.mimeType})",
             )
         }
+    }
+
+    companion object {
+        /** Command files for the printer itself, passed through untouched. */
+        val RAW_LABEL_EXTENSIONS = setOf("tspl", "zpl", "escpos", "prn", "bin")
+
+        /**
+         * Whether [toPdf] has a branch for this document at all.
+         *
+         * The exported share target needs to answer that question before it
+         * copies a byte, so it can refuse an unprintable file at the door
+         * rather than four layers down with a message about opening a stream.
+         * Kept beside [toPdf] and built from the same constants so the two
+         * cannot drift into disagreeing.
+         */
+        fun canRender(mimeType: String, extension: String): Boolean = when {
+            extension in RAW_LABEL_EXTENSIONS -> true
+            mimeType == SourceDocument.MIME_URL -> true
+            mimeType == "application/pdf" || extension == "pdf" -> true
+            mimeType.startsWith("image/") -> true
+            mimeType.startsWith("text/") -> true
+            extension in TEXTUAL_EXTENSIONS -> true
+            extension in OfficeConverter.OFFICE_EXTENSIONS -> true
+            OfficeConverter.OFFICE_MIME_PREFIXES.any { mimeType.startsWith(it) } -> true
+            else -> false
+        }
+
+        private val TEXTUAL_EXTENSIONS =
+            setOf("html", "htm", "txt", "log", "csv", "md")
     }
 
     private suspend fun convert(

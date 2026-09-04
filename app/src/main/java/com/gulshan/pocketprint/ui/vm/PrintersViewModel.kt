@@ -274,20 +274,6 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
         _selectedDocument.value = Spool.describe(getApplication(), uri)
     }
 
-    /**
-     * Same as [selectDocument], but copies the content immediately. An
-     * ACTION_SEND grant is scoped to the receiving activity and is gone by the
-     * time the print service opens the URI, so the bytes must be taken now.
-     */
-    fun selectSharedDocument(uri: Uri) = viewModelScope.launch {
-        val described = Spool.describe(getApplication(), uri)
-        _selectedDocument.value = runCatching {
-            val suffix = described.extension.takeIf { it.isNotBlank() }?.let { ".$it" } ?: ".bin"
-            val local = Spool.copyToCache(getApplication(), uri, suffix)
-            described.copy(uri = Uri.fromFile(local).toString(), sizeBytes = local.length())
-        }.getOrElse { described }
-    }
-
     fun setDocument(document: SourceDocument?) { _selectedDocument.value = document }
 
     /**

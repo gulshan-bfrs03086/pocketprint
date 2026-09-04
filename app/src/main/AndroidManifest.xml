@@ -84,7 +84,17 @@
                 android:resource="@xml/usb_device_filter" />
         </activity>
 
-        <!-- Share-sheet target: "Print" from any app. -->
+        <!-- Share-sheet target: "Print" from any app.
+
+             The types are listed rather than wildcarded. */* put PocketPrint in
+             the share sheet for contacts, APKs and audio it has no idea how to
+             print, which is both noise in every other app's share sheet and an
+             invitation to hand it something it should not be reading. This list
+             is what RenderPipeline.canRender accepts; subtype wildcards are not
+             a thing in intent filters, so the office types are spelled out.
+
+             The filter is not the check - an explicit intent bypasses it
+             entirely - so ShareTargetActivity re-validates everything. -->
         <activity
             android:name=".ShareTargetActivity"
             android:exported="true"
@@ -92,18 +102,32 @@
             android:theme="@style/Theme.PocketPrint">
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <data android:mimeType="*/*" />
-            </intent-filter>
-            <intent-filter>
                 <action android:name="android.intent.action.SEND_MULTIPLE" />
                 <category android:name="android.intent.category.DEFAULT" />
-                <data android:mimeType="*/*" />
+                <data android:mimeType="application/pdf" />
+                <data android:mimeType="image/*" />
+                <data android:mimeType="text/*" />
+                <data android:mimeType="application/rtf" />
+                <data android:mimeType="application/msword" />
+                <data android:mimeType="application/vnd.ms-excel" />
+                <data android:mimeType="application/vnd.ms-powerpoint" />
+                <data android:mimeType="application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
+                <data android:mimeType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
+                <data android:mimeType="application/vnd.openxmlformats-officedocument.presentationml.presentation" />
+                <data android:mimeType="application/vnd.oasis.opendocument.text" />
+                <data android:mimeType="application/vnd.oasis.opendocument.spreadsheet" />
+                <data android:mimeType="application/vnd.oasis.opendocument.presentation" />
             </intent-filter>
+
+            <!-- "Open with" on a PDF. No BROWSABLE: that category exists so a
+                 web page can launch an activity, and no web page has any
+                 business launching this one. Opening a downloaded PDF from a
+                 browser arrives as a content:// URI with the DEFAULT category
+                 and is unaffected. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" />
                 <data android:mimeType="application/pdf" />
             </intent-filter>
         </activity>
