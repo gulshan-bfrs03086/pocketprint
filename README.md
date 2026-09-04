@@ -160,15 +160,19 @@ builds of identical code:
 | | `pocketprint-modern.apk` | `pocketprint-legacy.apk` |
 |---|---|---|
 | Android | **12+** (API 31) | **7.0+** (API 24) |
-| Location permission | **none** | `ACCESS_FINE_LOCATION` (API ≤ 30) |
+| Location permission | **none** | **none** |
 | Size | 18 MB | 19 MB |
 
 **Use `modern` unless your device is older than Android 12.**
 
-Before API 31, scanning for a Bluetooth device required the location permission, because a scan
-can reveal position. `BLUETOOTH_SCAN` with `neverForLocation` replaced that — so the modern
-build asks for no location access at all. Neither build requires *any* hardware feature, so both
-install on devices without GPS, a camera or a touchscreen.
+Neither build asks for a location permission, and neither asks for permission to scan. Pairing
+goes through Android's own companion device picker, which scans on the app's behalf — an app
+that does not scan does not need permission to. Before that change the legacy build carried
+`ACCESS_FINE_LOCATION`, because a Bluetooth scan on those versions required it, which is how
+this app once became uninstallable on a rugged terminal with no GPS.
+
+Neither build requires *any* hardware feature, so both install on devices without GPS, a camera
+or a touchscreen.
 
 > [!NOTE]
 > Releases are built and signed by [a tag-triggered workflow](.github/workflows/release.yml),

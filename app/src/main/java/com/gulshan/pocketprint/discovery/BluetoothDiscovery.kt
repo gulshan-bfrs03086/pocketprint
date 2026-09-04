@@ -6,24 +6,12 @@ import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothClass
 import android.bluetooth.BluetoothDevice
-import android.bluetooth.le.ScanCallback
-import android.bluetooth.le.ScanFilter
-import android.bluetooth.le.ScanResult
-import android.bluetooth.le.ScanSettings
-import android.content.BroadcastReceiver
 import android.content.Context
-import android.content.Intent
-import android.content.IntentFilter
-import android.os.ParcelUuid
 import com.gulshan.pocketprint.model.BtLink
 import com.gulshan.pocketprint.model.Printer
 import com.gulshan.pocketprint.model.PrinterAddress
 import com.gulshan.pocketprint.model.PrinterCapabilities
-import com.gulshan.pocketprint.transport.BleTransport
 import com.gulshan.pocketprint.transport.BluetoothTransport
-import kotlinx.coroutines.channels.awaitClose
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.callbackFlow
 
 /**
  * Finds Bluetooth printers. Paired devices are the reliable source; an active
@@ -57,116 +45,60 @@ class BluetoothDiscovery(private val context: Context) {
         return (likely.ifEmpty { bonded }).map { toPrinter(it) }
     }
 
-    /** Live inquiry scan. Requires BLUETOOTH_SCAN on API 31+, location below it. */
-    @SuppressLint("MissingPermission")
-    fun scan(): Flow<Printer> = callbackFlow {
-        val a = adapter
-        if (a == null || !a.isEnabled || !hasPermission()) {
-            close()
-            return@callbackFlow
-        }
-
-        val receiver = object : BroadcastReceiver() {
-            override fun onReceive(ctx: Context?, intent: Intent?) {
-                if (intent?.action != BluetoothDevice.ACTION_FOUND) return
-                @Suppress("DEPRECATION")
-                val device: BluetoothDevice? =
-                    intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
-                device?.let { trySend(toPrinter(it)) }
-            }
-        }
-
-        context.registerReceiver(receiver, IntentFilter(BluetoothDevice.ACTION_FOUND))
-        runCatching { a.startDiscovery() }
-
-        awaitClose {
-            runCatching { a.cancelDiscovery() }
-            runCatching { context.unregisterReceiver(receiver) }
-        }
-    }
-
-    /**
-     * LE advertisement scan. BLE-only printers never answer a classic inquiry
-     * and are usually not bonded either, so [scan] and [bondedDevices] cannot
-     * see them at all -- this is the only way to discover them.
+    /*
+     * There used to be two scans here: a classic inquiry and an LE
+     * advertisement scan. Neither ever had a caller, and between them they were
+     * the only reason this app asked for BLUETOOTH_SCAN, or for
+     * ACCESS_FINE_LOCATION on Android 11 and below - the permission that once
+     * made the package refuse to install on a rugged terminal with no GPS.
      *
-     * On API 30 and below an LE scan additionally needs ACCESS_FINE_LOCATION
-     * *and* system Location switched on, or it silently reports nothing.
+     * CompanionPairing replaces both with the system's own picker, which scans
+     * on the app's behalf and therefore needs no scan permission at all. What
+     * is left here is the bonded list, which needs only BLUETOOTH_CONNECT.
      */
-    @SuppressLint("MissingPermission")
-    fun scanLe(): Flow<Printer> = callbackFlow {
-        val scanner = adapter?.takeIf { it.isEnabled && hasPermission() }?.bluetoothLeScanner
-        if (scanner == null) {
-            close()
-            return@callbackFlow
-        }
-
-        val callback = object : ScanCallback() {
-            override fun onScanResult(callbackType: Int, result: ScanResult) {
-                val advertised = result.scanRecord?.serviceUuids?.map { it.uuid }.orEmpty()
-                val name = result.scanRecord?.deviceName
-                    ?: runCatching { result.device.name }.getOrNull()
-                // Advertising a known printer service is proof; otherwise fall
-                // back to the name hints the classic path already uses.
-                val isPrinter = advertised.any { it in PRINTER_SERVICE_UUIDS } ||
-                    looksLikePrinter(name)
-                if (isPrinter) trySend(toPrinter(result.device, BtLink.BLE, name))
-            }
-
-            override fun onBatchScanResults(results: MutableList<ScanResult>) {
-                results.forEach { onScanResult(ScanSettings.CALLBACK_TYPE_ALL_MATCHES, it) }
-            }
-        }
-
-        // Filtering on service UUID lets the controller do the work, but many
-        // printers advertise nothing but a name, so scan unfiltered and sort it
-        // out in the callback.
-        val settings = ScanSettings.Builder()
-            .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
-            .build()
-        runCatching { scanner.startScan(emptyList<ScanFilter>(), settings, callback) }
-
-        awaitClose { runCatching { scanner.stopScan(callback) } }
-    }
-
-    @SuppressLint("MissingPermission")
-    private fun toPrinter(
-        device: BluetoothDevice,
-        link: BtLink,
-        advertisedName: String? = null,
-    ): Printer {
-        val name = (advertisedName ?: runCatching { device.name }.getOrNull()).orEmpty()
-            .ifBlank { device.address }
-        return Printer(
-            id = "bt:${device.address}",
-            displayName = name,
-            address = PrinterAddress.Bluetooth(mac = device.address, link = link),
-            makeAndModel = advertisedName ?: runCatching { device.name }.getOrNull(),
-            capabilities = guessCapabilities(name),
-            lastSeenEpochMs = System.currentTimeMillis(),
-        )
-    }
 
     /**
      * Tags the printer with the radio the adapter reports. DEVICE_TYPE_UNKNOWN
      * and DEVICE_TYPE_DUAL both stay AUTO so the transport probes at print time.
      */
-    @SuppressLint("MissingPermission")
     private fun toPrinter(device: BluetoothDevice): Printer =
-        toPrinter(device, linkOf(device))
-
-    @SuppressLint("MissingPermission")
-    private fun linkOf(device: BluetoothDevice): BtLink =
-        when (runCatching { device.type }.getOrNull()) {
-            BluetoothDevice.DEVICE_TYPE_LE -> BtLink.BLE
-            BluetoothDevice.DEVICE_TYPE_CLASSIC -> BtLink.CLASSIC
-            else -> BtLink.AUTO
-        }
+        printerFor(device, linkOf(device))
 
     companion object {
-        /** Service UUIDs a BLE thermal printer is likely to advertise. */
-        val PRINTER_SERVICE_UUIDS: Set<java.util.UUID> =
-            BleTransport.KNOWN_ENDPOINTS.map { it.first }.toSet()
+
+        /**
+         * One Bluetooth device, as a printer.
+         *
+         * Shared with the companion-device picker on purpose: a printer paired
+         * through the system picker and the same printer seen later in the
+         * bonded list have to come out with the same id, or the user ends up
+         * with two entries for one machine and no idea which is which.
+         */
+        @SuppressLint("MissingPermission")
+        fun printerFor(
+            device: BluetoothDevice,
+            link: BtLink,
+            advertisedName: String? = null,
+        ): Printer {
+            val name = (advertisedName ?: runCatching { device.name }.getOrNull()).orEmpty()
+                .ifBlank { device.address }
+            return Printer(
+                id = "bt:${device.address}",
+                displayName = name,
+                address = PrinterAddress.Bluetooth(mac = device.address, link = link),
+                makeAndModel = advertisedName ?: runCatching { device.name }.getOrNull(),
+                capabilities = guessCapabilities(name),
+                lastSeenEpochMs = System.currentTimeMillis(),
+            )
+        }
+
+        @SuppressLint("MissingPermission")
+        fun linkOf(device: BluetoothDevice): BtLink =
+            when (runCatching { device.type }.getOrNull()) {
+                BluetoothDevice.DEVICE_TYPE_LE -> BtLink.BLE
+                BluetoothDevice.DEVICE_TYPE_CLASSIC -> BtLink.CLASSIC
+                else -> BtLink.AUTO
+            }
 
         private val PRINTER_NAME_HINTS = listOf(
             "print", "pos", "receipt", "label", "tsc", "zebra", "zq", "zd", "gprinter",

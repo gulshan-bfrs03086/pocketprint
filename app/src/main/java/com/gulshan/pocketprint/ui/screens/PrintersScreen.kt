@@ -7,6 +7,7 @@ import android.content.Intent
 import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -60,6 +61,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.gulshan.pocketprint.model.ColorMode
 import com.gulshan.pocketprint.model.ConnectionKind
 import com.gulshan.pocketprint.model.MediaSize
+import com.gulshan.pocketprint.discovery.CompanionPairing
 import com.gulshan.pocketprint.model.Printer
 import com.gulshan.pocketprint.permissions.AppHealth
 import com.gulshan.pocketprint.permissions.AppPermissions
@@ -128,6 +130,32 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
     val pickDocument = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument(),
     ) { uri -> uri?.let { viewModel.selectDocument(it) } }
+
+    // The system picker hands back an IntentSender rather than an Intent, so it
+    // is launched through the sender contract; the device comes back in the
+    // result data.
+    val pairLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult(),
+    ) { result ->
+        CompanionPairing.printerFrom(result.data)?.let { printer ->
+            pickingForSetup = false
+            viewModel.adoptPairedPrinter(printer)
+        }
+    }
+
+    fun pairNewPrinter() {
+        CompanionPairing.request(
+            context = context,
+            onPicker = { sender ->
+                runCatching {
+                    pairLauncher.launch(IntentSenderRequest.Builder(sender).build())
+                }
+            },
+            onUnavailable = { message ->
+                Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+            },
+        )
+    }
 
     LaunchedEffect(Unit) { viewModel.refreshLocalPrinters() }
 
@@ -441,6 +469,11 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
             onPick = {
                 pickingForSetup = false
                 viewModel.startAutoSetup(it)
+            },
+            onPairNew = if (CompanionPairing.isSupported(context)) {
+                { pairNewPrinter() }
+            } else {
+                null
             },
         )
     }

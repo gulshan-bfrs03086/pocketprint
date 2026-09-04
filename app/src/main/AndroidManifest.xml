@@ -16,14 +16,17 @@
          Finding the Wi-Fi network to bind to needs this. -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
-    <!-- Bluetooth thermal / label printers. The split permissions (API 31+) are
-         all this flavour needs; the legacy flavour adds the older ones. -->
+    <!-- Bluetooth thermal / label printers.
+
+         Connect, and nothing else. There is no BLUETOOTH_SCAN here because this
+         app no longer scans: pairing goes through the system's companion device
+         picker, which does the scanning on the app's behalf, and printing after
+         that works from the bonded list. An app that does not scan does not need
+         permission to scan. -->
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
-    <!-- neverForLocation lets the scan run without the location permission;
-         discovery is only ever used to find a printer. -->
-    <uses-permission android:name="android.permission.BLUETOOTH_SCAN"
-        android:usesPermissionFlags="neverForLocation"
-        tools:targetApi="s" />
+
+    <uses-feature android:name="android.software.companion_device_setup"
+        android:required="false" />
 
     <!-- No storage or media permission of any kind, in either flavour.
          Documents are picked through the Storage Access Framework and arrive as

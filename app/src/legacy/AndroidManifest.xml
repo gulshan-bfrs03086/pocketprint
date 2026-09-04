@@ -1,28 +1,29 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Extra permissions needed only on Android 11 and below.
+  One extra permission, needed only on Android 11 and below.
 
-  Before API 31 there were no split Bluetooth permissions: scanning for a device
-  required the legacy BLUETOOTH/BLUETOOTH_ADMIN pair *and* the location
-  permission, because a Bluetooth scan can reveal position. From API 31 the
-  BLUETOOTH_SCAN permission with neverForLocation replaces all of that, which is
-  why the modern flavour asks for no location access at all.
+  Before API 31 there were no split Bluetooth permissions: BLUETOOTH covered
+  everything, and it is an install-time permission with no prompt attached.
+
+  What used to be here as well was BLUETOOTH_ADMIN and ACCESS_FINE_LOCATION,
+  because a Bluetooth scan on those versions required them - a scan can reveal
+  position. This app no longer scans. Pairing goes through the system's
+  companion device picker, which scans on the app's behalf, so both are gone and
+  the legacy build now asks for no location access either.
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.BLUETOOTH"
         android:maxSdkVersion="30" />
-    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN"
-        android:maxSdkVersion="30" />
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"
-        android:maxSdkVersion="30" />
 
     <!--
-      ACCESS_FINE_LOCATION above makes aapt imply android.hardware.location as a
-      REQUIRED feature, and the package manager then refuses to install on any
-      device without a location provider. That is exactly how this app became
-      uninstallable on a rugged barcode terminal, reporting only a generic
-      "Can't install the app". Declaring them optional is mandatory here.
+      Kept as a guard rather than a fix. ACCESS_FINE_LOCATION used to be
+      declared above, and it made aapt imply android.hardware.location as a
+      REQUIRED feature - which is exactly how this app became uninstallable on a
+      rugged barcode terminal with no GPS, reporting only a generic "Can't
+      install the app". The permission is gone and the implication with it, but
+      these stay so that re-adding any location permission cannot bring the
+      failure back silently. CI checks the built APKs for required features.
     -->
     <uses-feature android:name="android.hardware.location" android:required="false" />
     <uses-feature android:name="android.hardware.location.gps" android:required="false" />

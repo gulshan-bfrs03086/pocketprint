@@ -48,10 +48,10 @@ fun FirstRunScreen(onContinue: () -> Unit) {
 
         Section(
             "Bluetooth, when you set up a printer",
-            "To find the printer and to send it the job. Android calls part of this " +
-                "a location permission on versions before Android 12, which is a " +
-                "quirk of how Bluetooth scanning used to work — PocketPrint does not " +
-                "ask for, use, or store your location.",
+            "To send the printer its job, and nothing else. Finding it is done by " +
+                "Android's own device picker, which scans on PocketPrint's behalf — " +
+                "so this app never scans, and never asks for a location permission on " +
+                "any version of Android.",
         )
 
         Section(

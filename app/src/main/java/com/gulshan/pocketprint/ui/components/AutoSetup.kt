@@ -109,6 +109,8 @@ fun AutoSetupPicker(
     candidates: List<Printer>,
     onDismiss: () -> Unit,
     onPick: (Printer) -> Unit,
+    /** Null on a device with no companion device picker. */
+    onPairNew: (() -> Unit)?,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -117,9 +119,14 @@ fun AutoSetupPicker(
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 if (candidates.isEmpty()) {
                     Text(
-                        "No paired Bluetooth printers found. Pair the printer in " +
-                            "Android Settings first — the PIN is usually 0000 — then " +
-                            "come back and try again.",
+                        if (onPairNew != null) {
+                            "No paired Bluetooth printers yet."
+                        } else {
+                            // The old route, still the only one on Android 7.
+                            "No paired Bluetooth printers found. Pair the printer in " +
+                                "Android Settings first — the PIN is usually 0000 — " +
+                                "then come back and try again."
+                        },
                         style = MaterialTheme.typography.bodyMedium,
                     )
                 }
@@ -140,7 +147,15 @@ fun AutoSetupPicker(
                 }
             }
         },
-        confirmButton = {},
+        confirmButton = {
+            // Where this used to send people to Android Settings to hunt
+            // through a list of MAC addresses, it now opens the system's own
+            // picker - which scans, shows the devices, and pairs, without this
+            // app holding a scan permission or knowing what is nearby.
+            if (onPairNew != null) {
+                TextButton(onClick = onPairNew) { Text("Pair a new printer") }
+            }
+        },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }

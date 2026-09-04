@@ -43,14 +43,17 @@ enum class PermissionStatus {
 object AppPermissions {
 
     /**
-     * Reaching a Bluetooth printer. Split at API 31; before that, scanning
-     * required the location permission, which is why the legacy build asks for
-     * something the modern one does not.
+     * Reaching a Bluetooth printer: connecting to it, and nothing else.
+     *
+     * Empty below API 31, where the legacy BLUETOOTH permission covers it and is
+     * granted at install with no prompt. Above it, BLUETOOTH_CONNECT alone -
+     * there is no BLUETOOTH_SCAN because this app does not scan, and no location
+     * permission because the only thing that ever needed one was the scan.
      */
     val bluetooth: List<String> = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-        listOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN)
+        listOf(Manifest.permission.BLUETOOTH_CONNECT)
     } else {
-        listOf(Manifest.permission.ACCESS_FINE_LOCATION)
+        emptyList()
     }
 
     /** Showing job progress, and the Cancel action that goes with it. */

@@ -633,6 +633,16 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
 
     fun dismissPreview() { _preview.value = null }
 
+    /**
+     * Takes a printer the system's device picker just paired and runs setup on
+     * it, so pairing and bring-up are one gesture rather than two screens in
+     * two apps with a hunt in between.
+     */
+    fun adoptPairedPrinter(printer: Printer) = viewModelScope.launch {
+        printerRepo.save(printer)
+        startAutoSetup(printer)
+    }
+
     fun dismissSetup() { _setup.value = null }
 
     fun setSetupStock(media: MediaSize) { _setupStock.value = media }
