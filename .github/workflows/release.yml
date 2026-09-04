@@ -121,12 +121,43 @@ jobs:
           if-no-files-found: error
 
       # Draft, never published. Someone reads the notes and presses the button.
-      - name: Draft the GitHub release
+      #
+      # Create or attach, not just create. A run that fails after the release
+      # has been drafted - a flaky upload, a cancelled job, a release somebody
+      # made by hand first - cannot be re-run if this only ever creates, because
+      # gh release create refuses when the release already exists. Re-running a
+      # failed release is exactly what anybody does next, so it has to work.
+      #
+      # An existing release keeps its notes. They may have been written by a
+      # person, and overwriting somebody's release notes in order to re-attach
+      # the same three files would be a poor trade. That is also why the
+      # generated notes no longer quote the checksums: SHA256SUMS.txt is
+      # attached, it is the thing anyone verifying would actually use, and notes
+      # that cannot go stale need no rule about when to refresh them.
+      - name: Create or update the GitHub release
         if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           version="${GITHUB_REF_NAME#v}"
+          assets=(
+            dist/pocketprint-modern.apk
+            dist/pocketprint-legacy.apk
+            dist/SHA256SUMS.txt
+          )
+
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "A release already exists for $GITHUB_REF_NAME; attaching the builds to it."
+            # Worth saying out loud: attaching to a published release makes
+            # these files public immediately, with nobody pressing anything.
+            gh release view "$GITHUB_REF_NAME" --json isDraft -q 'if .isDraft
+              then "It is still a draft, so nothing is public yet."
+              else "::warning::That release is already published - these files are now public."
+              end'
+            gh release upload "$GITHUB_REF_NAME" "${assets[@]}" --clobber
+            exit 0
+          fi
+
           {
             echo "## PocketPrint $version"
             echo
@@ -135,19 +166,16 @@ jobs:
             echo "| | Android | Location permission |"
             echo "|---|---|---|"
             echo "| \`pocketprint-modern.apk\` | 12+ (API 31) | none |"
-            echo "| \`pocketprint-legacy.apk\` | 7.0+ (API 24) | \`ACCESS_FINE_LOCATION\` on API <= 30 |"
+            echo "| \`pocketprint-legacy.apk\` | 7.0+ (API 24) | none |"
             echo
-            echo '```'
-            cat dist/SHA256SUMS.txt
-            echo '```'
+            echo "Checksums are in the attached \`SHA256SUMS.txt\`."
           } > dist/NOTES.md
+
           gh release create "$GITHUB_REF_NAME" \
             --draft \
             --title "PocketPrint $version" \
             --notes-file dist/NOTES.md \
-            dist/pocketprint-modern.apk \
-            dist/pocketprint-legacy.apk \
-            dist/SHA256SUMS.txt
+            "${assets[@]}"
 
       - name: Shred the decoded key
         if: always()
