@@ -17,6 +17,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
@@ -24,6 +25,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.gulshan.pocketprint.label.EscPos
 import com.gulshan.pocketprint.label.LabelText
+import com.gulshan.pocketprint.ui.MediaSizeSaver
+import com.gulshan.pocketprint.ui.enumSaver
 import com.gulshan.pocketprint.model.LabelStock
 import com.gulshan.pocketprint.label.Tspl
 import com.gulshan.pocketprint.label.Zpl
@@ -45,14 +48,28 @@ fun LabelScreen(viewModel: PrintersViewModel) {
     val saved by viewModel.savedPrinters.collectAsStateWithLifecycle()
     val options by viewModel.options.collectAsStateWithLifecycle()
 
-    var title by remember { mutableStateOf("SAMPLE LABEL") }
-    var line2 by remember { mutableStateOf("") }
-    var line3 by remember { mutableStateOf("") }
-    var barcode by remember { mutableStateOf("TEST1234") }
-    var selectedPrinter by remember { mutableStateOf<Printer?>(null) }
-    var language by remember { mutableStateOf(PrintLanguage.TSPL) }
-    var media by remember { mutableStateOf(MediaSize.LABEL_100X50) }
+    // Saveable, not remembered. Android 16 already ignores orientation locks on
+    // large screens and 17 removes the opt-out, so a rotation is not something
+    // this form gets to avoid - and losing everything typed on one is the
+    // oldest bug in Android.
+    var title by rememberSaveable { mutableStateOf("SAMPLE LABEL") }
+    var line2 by rememberSaveable { mutableStateOf("") }
+    var line3 by rememberSaveable { mutableStateOf("") }
+    var barcode by rememberSaveable { mutableStateOf("TEST1234") }
+    // By id: a Printer is not Parcelable, and the saved list is the truth anyway.
+    var selectedPrinterId by rememberSaveable { mutableStateOf<String?>(null) }
+    var language by rememberSaveable(stateSaver = enumSaver(PrintLanguage.entries.toList())) {
+        mutableStateOf(PrintLanguage.TSPL)
+    }
+    var media by rememberSaveable(stateSaver = MediaSizeSaver) {
+        mutableStateOf(MediaSize.LABEL_100X50)
+    }
     val status by viewModel.labelStatus.collectAsStateWithLifecycle()
+
+    // Resolved from the saved list each time, so a printer deleted while this
+    // screen was in the background simply deselects rather than lingering as a
+    // stale copy of a printer that no longer exists.
+    val selectedPrinter = saved.firstOrNull { it.id == selectedPrinterId }
 
     val allLanguages = listOf(PrintLanguage.TSPL, PrintLanguage.ZPL, PrintLanguage.ESC_POS)
     val languageChoices = selectedPrinter?.capabilities?.languages
@@ -135,7 +152,7 @@ fun LabelScreen(viewModel: PrintersViewModel) {
                 items = labelPrinters,
                 selected = selectedPrinter,
                 label = { it.displayName },
-                onSelect = { selectedPrinter = it },
+                onSelect = { selectedPrinterId = it.id },
             )
         }
 

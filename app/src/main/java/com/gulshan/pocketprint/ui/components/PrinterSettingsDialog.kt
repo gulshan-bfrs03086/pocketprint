@@ -16,6 +16,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -25,6 +26,8 @@ import com.gulshan.pocketprint.model.MediaSensing
 import com.gulshan.pocketprint.model.MediaSize
 import com.gulshan.pocketprint.model.PrintLanguage
 import com.gulshan.pocketprint.model.Printer
+import com.gulshan.pocketprint.ui.MediaSizeSaver
+import com.gulshan.pocketprint.ui.enumSaver
 
 /**
  * Lets the user correct what the app guessed about a printer.
@@ -43,20 +46,20 @@ fun PrinterSettingsDialog(
     onCopyReport: () -> Unit,
     onCalibrate: (Printer) -> Unit,
 ) {
-    var name by remember { mutableStateOf(printer.displayName) }
-    var language by remember {
+    var name by rememberSaveable { mutableStateOf(printer.displayName) }
+    var language by rememberSaveable(stateSaver = enumSaver(PrintLanguage.entries.toList())) {
         mutableStateOf(printer.capabilities.languages.firstOrNull() ?: PrintLanguage.ESC_POS)
     }
-    var media by remember {
+    var media by rememberSaveable(stateSaver = MediaSizeSaver) {
         mutableStateOf(printer.capabilities.mediaSizes.firstOrNull() ?: MediaSize.LABEL_4X6)
     }
-    var dpi by remember {
+    var dpi by rememberSaveable {
         mutableStateOf(printer.capabilities.resolutionsDpi.firstOrNull() ?: 203)
     }
-    var widthDots by remember {
+    var widthDots by rememberSaveable {
         mutableStateOf((printer.capabilities.rasterWidthDots ?: 576).toString())
     }
-    var exposeToSystem by remember { mutableStateOf(printer.exposeToSystem) }
+    var exposeToSystem by rememberSaveable { mutableStateOf(printer.exposeToSystem) }
 
     // Sizes the user has typed in, kept alongside the built-in list. 50x30 and
     // 60x40 are two of the most common rolls on the market and neither is one
@@ -64,13 +67,15 @@ fun PrinterSettingsDialog(
     var extraSizes by remember {
         mutableStateOf(printer.capabilities.mediaSizes.filter { it.isCustom })
     }
-    var customWidth by remember { mutableStateOf("") }
-    var customHeight by remember { mutableStateOf("") }
+    var customWidth by rememberSaveable { mutableStateOf("") }
+    var customHeight by rememberSaveable { mutableStateOf("") }
 
-    var sensing by remember { mutableStateOf(printer.stock.sensing) }
-    var gapMm by remember { mutableStateOf(printer.stock.gapMm.toString()) }
-    var darkness by remember { mutableStateOf(printer.stock.darkness) }
-    var speed by remember { mutableStateOf(printer.stock.speedIps) }
+    var sensing by rememberSaveable(stateSaver = enumSaver(MediaSensing.entries.toList())) {
+        mutableStateOf(printer.stock.sensing)
+    }
+    var gapMm by rememberSaveable { mutableStateOf(printer.stock.gapMm.toString()) }
+    var darkness by rememberSaveable { mutableStateOf(printer.stock.darkness) }
+    var speed by rememberSaveable { mutableStateOf(printer.stock.speedIps) }
 
     val isLabelPrinter = language == PrintLanguage.TSPL || language == PrintLanguage.ZPL
     val sizes = (MediaSize.ALL + extraSizes).distinctBy { it.id }

@@ -45,6 +45,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -65,6 +66,7 @@ import com.gulshan.pocketprint.permissions.AppPermissions
 import com.gulshan.pocketprint.permissions.PermissionStatus
 import com.gulshan.pocketprint.permissions.PrintServiceState
 import com.gulshan.pocketprint.permissions.rememberPermissionRequester
+import com.gulshan.pocketprint.ui.enumSaver
 import com.gulshan.pocketprint.ui.components.AutoSetupCard
 import com.gulshan.pocketprint.ui.components.AutoSetupDialog
 import com.gulshan.pocketprint.ui.components.AutoSetupPicker
@@ -85,9 +87,13 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
     val document by viewModel.selectedDocument.collectAsStateWithLifecycle()
     val options by viewModel.options.collectAsStateWithLifecycle()
 
-    var showAddDialog by remember { mutableStateOf(false) }
-    var editing by remember { mutableStateOf<Printer?>(null) }
-    var pickingForSetup by remember { mutableStateOf(false) }
+    var showAddDialog by rememberSaveable { mutableStateOf(false) }
+    // By id, like the label screen: a Printer is not Parcelable, and resolving
+    // it from the saved list means an open settings dialog closes cleanly if
+    // that printer is deleted rather than editing a ghost.
+    var editingId by rememberSaveable { mutableStateOf<String?>(null) }
+    val editing = saved.firstOrNull { it.id == editingId }
+    var pickingForSetup by rememberSaveable { mutableStateOf(false) }
     val setupProgress by viewModel.setup.collectAsStateWithLifecycle()
     val storageProblems by viewModel.storageProblems.collectAsStateWithLifecycle()
     val preview by viewModel.preview.collectAsStateWithLifecycle()
@@ -313,7 +319,7 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
                         ) {
                             Icon(Icons.Filled.Visibility, contentDescription = "Preview")
                         }
-                        IconButton(onClick = { editing = printer }) {
+                        IconButton(onClick = { editingId = printer.id }) {
                             Icon(Icons.Filled.Tune, contentDescription = "Printer settings")
                         }
                         IconButton(onClick = { viewModel.removePrinter(printer.id) }) {
@@ -456,16 +462,16 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
     editing?.let { target ->
         PrinterSettingsDialog(
             printer = target,
-            onDismiss = { editing = null },
+            onDismiss = { editingId = null },
             onSave = {
                 viewModel.updatePrinter(it)
-                editing = null
+                editingId = null
             },
             onTestPage = { viewModel.printTestPage(it) },
             onCalibrate = {
                 viewModel.updatePrinter(it)
                 viewModel.calibrate(it)
-                editing = null
+                editingId = null
             },
             onCopyReport = {
                 val clipboard = context.getSystemService(ClipboardManager::class.java)
@@ -562,10 +568,12 @@ private fun AddPrinterDialog(
     onDismiss: () -> Unit,
     onAdd: (name: String, host: String, port: Int, kind: ConnectionKind) -> Unit,
 ) {
-    var name by remember { mutableStateOf("") }
-    var host by remember { mutableStateOf("") }
-    var kind by remember { mutableStateOf(ConnectionKind.IPP) }
-    var port by remember { mutableStateOf("631") }
+    var name by rememberSaveable { mutableStateOf("") }
+    var host by rememberSaveable { mutableStateOf("") }
+    var kind by rememberSaveable(stateSaver = enumSaver(ConnectionKind.entries.toList())) {
+        mutableStateOf(ConnectionKind.IPP)
+    }
+    var port by rememberSaveable { mutableStateOf("631") }
 
     AlertDialog(
         onDismissRequest = onDismiss,

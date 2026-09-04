@@ -1,5 +1,7 @@
 package com.gulshan.pocketprint.ui
 
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.History
@@ -9,6 +11,8 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationRail
+import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -21,6 +25,7 @@ import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.navigation.NavHostController
 import androidx.navigation.compose.rememberNavController
 import com.gulshan.pocketprint.ui.screens.JobsScreen
 import com.gulshan.pocketprint.ui.screens.LabelScreen
@@ -42,39 +47,68 @@ fun AppNav(viewModel: PrintersViewModel = viewModel()) {
     val navController = rememberNavController()
     val backStack by navController.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination
+    val wide = isWideScreen()
+
+    fun isSelected(tab: Tab) = currentRoute?.hierarchy?.any { it.route == tab.route } == true
+
+    fun go(tab: Tab) {
+        navController.navigate(tab.route) {
+            // Keep a single copy of each tab on the back stack.
+            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+            launchSingleTop = true
+            restoreState = true
+        }
+    }
 
     Scaffold(
         bottomBar = {
-            NavigationBar {
-                TABS.forEach { tab ->
-                    NavigationBarItem(
-                        selected = currentRoute?.hierarchy?.any { it.route == tab.route } == true,
-                        onClick = {
-                            navController.navigate(tab.route) {
-                                // Keep a single copy of each tab on the back stack.
-                                popUpTo(navController.graph.findStartDestination().id) {
-                                    saveState = true
-                                }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
-                        },
-                        icon = { Icon(tab.icon, contentDescription = tab.label) },
-                        label = { Text(tab.label) },
-                    )
+            // A bottom bar on a tablet puts the controls a hand-span away from
+            // where the eye is. Above 600dp the navigation moves to the side,
+            // which is where every other Android tablet app keeps it.
+            if (!wide) {
+                NavigationBar {
+                    TABS.forEach { tab ->
+                        NavigationBarItem(
+                            selected = isSelected(tab),
+                            onClick = { go(tab) },
+                            icon = { Icon(tab.icon, contentDescription = tab.label) },
+                            label = { Text(tab.label) },
+                        )
+                    }
                 }
             }
         },
     ) { padding ->
-        NavHost(
-            navController = navController,
-            startDestination = "printers",
-            modifier = Modifier.padding(padding),
+        Row(
+            Modifier
+                .fillMaxSize()
+                .padding(padding),
         ) {
-            composable("printers") { PrintersScreen(viewModel) }
-            composable("labels") { LabelScreen(viewModel) }
-            composable("jobs") { JobsScreen(viewModel) }
-            composable("settings") { SettingsScreen(viewModel) }
+            if (wide) {
+                NavigationRail {
+                    TABS.forEach { tab ->
+                        NavigationRailItem(
+                            selected = isSelected(tab),
+                            onClick = { go(tab) },
+                            icon = { Icon(tab.icon, contentDescription = tab.label) },
+                            label = { Text(tab.label) },
+                        )
+                    }
+                }
+            }
+            AdaptiveContent(Modifier.weight(1f)) {
+                Host(navController, viewModel)
+            }
         }
+    }
+}
+
+@Composable
+private fun Host(navController: NavHostController, viewModel: PrintersViewModel) {
+    NavHost(navController = navController, startDestination = "printers") {
+        composable("printers") { PrintersScreen(viewModel) }
+        composable("labels") { LabelScreen(viewModel) }
+        composable("jobs") { JobsScreen(viewModel) }
+        composable("settings") { SettingsScreen(viewModel) }
     }
 }

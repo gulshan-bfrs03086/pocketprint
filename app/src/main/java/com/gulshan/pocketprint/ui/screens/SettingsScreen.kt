@@ -18,6 +18,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -34,7 +35,7 @@ import com.gulshan.pocketprint.ui.vm.PrintersViewModel
 fun SettingsScreen(viewModel: PrintersViewModel) {
     val context = LocalContext.current
     val settings by viewModel.settings.collectAsStateWithLifecycle()
-    var converterUrl by remember(settings.officeConverterUrl) {
+    var converterUrl by rememberSaveable(settings.officeConverterUrl) {
         mutableStateOf(settings.officeConverterUrl)
     }
 
