@@ -5,6 +5,26 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
+/**
+ * The version, declared once.
+ *
+ * Bumped on the release branch that carries the version, never on main
+ * directly, so main always reads as the latest version that has landed.
+ * See docs/RELEASING.md.
+ */
+val versionMajor = 1
+val versionMinor = 0
+val versionPatch = 1
+
+/**
+ * Version codes must be distinct integers that only increase, and the two
+ * flavours are separate packages of the same version, so they cannot share
+ * one. Derive the code from the version rather than tracking it by hand, and
+ * give each flavour a low digit: modern sits above legacy so a device that can
+ * install either takes the build with fewer permissions.
+ */
+val baseVersionCode = (versionMajor * 10000 + versionMinor * 100 + versionPatch) * 10
+
 android {
     namespace = "com.gulshan.pocketprint"
     compileSdk = 36
@@ -12,8 +32,8 @@ android {
     defaultConfig {
         applicationId = "com.gulshan.pocketprint"
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = baseVersionCode
+        versionName = "$versionMajor.$versionMinor.$versionPatch"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -38,6 +58,7 @@ android {
         create("legacy") {
             dimension = "reach"
             minSdk = 24
+            versionCode = baseVersionCode + 1
             versionNameSuffix = "-legacy"
         }
 
@@ -52,6 +73,7 @@ android {
         create("modern") {
             dimension = "reach"
             minSdk = 31
+            versionCode = baseVersionCode + 2
             versionNameSuffix = "-modern"
         }
     }
