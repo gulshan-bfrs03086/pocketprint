@@ -123,6 +123,14 @@ the two APKs and their SHA-256 sums. It never publishes — someone reads the
 draft and presses the button. `workflow_dispatch` does all of that except touch
 the Releases page, which makes it a usable dry run.
 
+If a release already exists for the tag — because a previous run failed part
+way, or because somebody made one by hand — the builds are attached to it
+instead, and its notes are left alone. Re-running a failed release is the first
+thing anyone tries, so it has to work; and overwriting somebody's release notes
+in order to re-attach the same three files would be a poor trade. Note that
+attaching to a release that is already published makes those files public
+immediately, and the run says so in its log.
+
 ### The first signed release installs alongside, not over
 
 Everything published so far was a *debug* build, and debug builds carry
