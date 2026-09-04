@@ -282,9 +282,10 @@ object IppCapabilityMapper {
         response.printerGroup()?.get("printer-is-accepting-jobs")?.asBool() ?: true
 
     /** printer-state is an enum: 3 idle, 4 processing, 5 stopped. */
-    fun stateText(response: IppResponse): String = when (
+    fun printerState(response: IppResponse): Int? =
         response.printerGroup()?.get("printer-state")?.asInt()
-    ) {
+
+    fun stateText(response: IppResponse): String = when (printerState(response)) {
         3 -> "Idle"
         4 -> "Printing"
         5 -> "Stopped"

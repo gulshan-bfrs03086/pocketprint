@@ -203,6 +203,30 @@ class PrintEngine(
         }
     }
 
+    /**
+     * Asks a network printer whether it is in a state to take work.
+     *
+     * Returns null for printers with no status protocol, which is every
+     * transport except IPP: raw 9100, RFCOMM and USB bulk will accept bytes
+     * from a printer that is jammed, out of paper or switched to a different
+     * interpreter, and say nothing about any of it.
+     */
+    suspend fun networkStatus(printer: Printer): PrinterAvailability? {
+        val address = printer.address as? PrinterAddress.Ipp ?: return null
+        return runCatching {
+            val response = ippClient.getPrinterAttributes(address)
+            PrinterStatus.fromIpp(
+                reachable = response.isSuccess,
+                acceptingJobs = IppCapabilityMapper.isAcceptingJobs(response),
+                printerState = IppCapabilityMapper.printerState(response),
+            )
+        }.getOrElse {
+            if (it is kotlinx.coroutines.CancellationException) throw it
+            Log.i(TAG, "status probe failed for ${printer.displayName}: ${it.message}")
+            PrinterAvailability.UNAVAILABLE
+        }
+    }
+
     suspend fun print(
         printer: Printer,
         source: SourceDocument,

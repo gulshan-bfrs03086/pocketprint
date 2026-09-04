@@ -20,6 +20,7 @@ import com.gulshan.pocketprint.model.PrintOptions
 import com.gulshan.pocketprint.model.PrintResult
 import com.gulshan.pocketprint.model.Printer
 import com.gulshan.pocketprint.print.JobListener
+import com.gulshan.pocketprint.print.PrinterAvailability
 import com.gulshan.pocketprint.render.Spool
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
@@ -265,6 +266,7 @@ internal fun buildPrinterInfo(
     printer: Printer,
     printerId: PrinterId,
     packageName: String,
+    availability: PrinterAvailability,
 ): PrinterInfo {
     val capabilities = PrinterCapabilitiesInfo.Builder(printerId).apply {
         val sizes = printer.capabilities.mediaSizes.ifEmpty { listOf(MediaSize.A4) }
@@ -309,7 +311,15 @@ internal fun buildPrinterInfo(
         setMinMargins(margins)
     }.build()
 
-    return PrinterInfo.Builder(printerId, printer.displayName, PrinterInfo.STATUS_IDLE)
+    // Published as IDLE forever until now, which is how someone ends up
+    // tapping Print on a printer whose Bluetooth radio is switched off.
+    val status = when (availability) {
+        PrinterAvailability.IDLE -> PrinterInfo.STATUS_IDLE
+        PrinterAvailability.BUSY -> PrinterInfo.STATUS_BUSY
+        PrinterAvailability.UNAVAILABLE -> PrinterInfo.STATUS_UNAVAILABLE
+    }
+
+    return PrinterInfo.Builder(printerId, printer.displayName, status)
         .setCapabilities(capabilities)
         .setDescription(printer.makeAndModel ?: printer.subtitle)
         .build()
