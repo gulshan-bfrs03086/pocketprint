@@ -18,9 +18,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.gulshan.pocketprint.R
 import com.gulshan.pocketprint.model.JobState
 import com.gulshan.pocketprint.print.JobError
 import com.gulshan.pocketprint.ui.components.InfoBanner
@@ -51,9 +53,11 @@ fun JobsScreen(viewModel: PrintersViewModel) {
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("History", style = MaterialTheme.typography.titleMedium)
+                Text(stringResource(R.string.jobs_title), style = MaterialTheme.typography.titleMedium)
                 if (jobs.isNotEmpty()) {
-                    TextButton(onClick = { viewModel.clearJobs() }) { Text("Clear") }
+                    TextButton(onClick = { viewModel.clearJobs() }) {
+                        Text(stringResource(R.string.action_clear))
+                    }
                 }
             }
         }
@@ -62,13 +66,15 @@ fun JobsScreen(viewModel: PrintersViewModel) {
             item {
                 Column {
                     InfoBanner(text)
-                    TextButton(onClick = { viewModel.clearJobsMessage() }) { Text("Dismiss") }
+                    TextButton(onClick = { viewModel.clearJobsMessage() }) {
+                        Text(stringResource(R.string.action_dismiss))
+                    }
                 }
             }
         }
 
         if (jobs.isEmpty()) {
-            item { InfoBanner("No print jobs yet.") }
+            item { InfoBanner(stringResource(R.string.jobs_empty)) }
         }
 
         items(jobs, key = { it.id }) { job ->
@@ -90,9 +96,15 @@ fun JobsScreen(viewModel: PrintersViewModel) {
                             // "Printed" is claimed only where a printer said so.
                             // Everything else that left the device is "Sent",
                             // and the row carries the reason underneath.
-                            JobState.COMPLETED -> "Printed (${job.bytesSent / 1024} KB)"
-                            JobState.SENT -> "Sent (${job.bytesSent / 1024} KB) - not confirmed"
-                            JobState.FAILED -> job.error ?: "Failed"
+                            JobState.COMPLETED -> stringResource(
+                                R.string.jobs_printed,
+                                (job.bytesSent / 1024).toInt(),
+                            )
+                            JobState.SENT -> stringResource(
+                                R.string.jobs_sent_unconfirmed,
+                                (job.bytesSent / 1024).toInt(),
+                            )
+                            JobState.FAILED -> job.error ?: stringResource(R.string.jobs_failed)
 
                             else -> job.state.name.lowercase()
                                 .replaceFirstChar { it.uppercase() }
@@ -137,14 +149,14 @@ fun JobsScreen(viewModel: PrintersViewModel) {
                             onClick = { viewModel.cancelJob(job) },
                             modifier = Modifier.padding(top = 4.dp),
                         ) {
-                            Text("Cancel")
+                            Text(stringResource(R.string.action_cancel))
                         }
                     } else if (job.replayable) {
                         TextButton(
                             onClick = { viewModel.reprint(job) },
                             modifier = Modifier.padding(top = 4.dp),
                         ) {
-                            Text("Print again")
+                            Text(stringResource(R.string.jobs_reprint))
                         }
                     }
                 }

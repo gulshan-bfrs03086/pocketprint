@@ -51,6 +51,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -61,6 +63,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.gulshan.pocketprint.model.ColorMode
 import com.gulshan.pocketprint.model.ConnectionKind
 import com.gulshan.pocketprint.model.MediaSize
+import com.gulshan.pocketprint.R
 import com.gulshan.pocketprint.discovery.CompanionPairing
 import com.gulshan.pocketprint.model.Printer
 import com.gulshan.pocketprint.permissions.AppHealth
@@ -176,17 +179,12 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
             item {
                 Column(Modifier.padding(top = 16.dp)) {
                     WarningBanner(
-                        "Android will switch PocketPrint off if it is not opened for " +
-                            "about three months, and take its Bluetooth permission " +
-                            "with it. Printing from other apps does not count as " +
-                            "opening it - so the next print from Gmail would simply " +
-                            "fail, inside Gmail, with nothing able to explain why. " +
-                            "Turning off \"pause app activity if unused\" prevents it.",
+                        stringResource(R.string.hibernation_warning),
                     )
                     Button(
                         onClick = { AppHealth.openHibernationSettings(context) },
                         modifier = Modifier.padding(top = 8.dp),
-                    ) { Text("Open app info") }
+                    ) { Text(stringResource(R.string.action_open_app_info)) }
                 }
             }
         }
@@ -198,14 +196,12 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
             item {
                 Column(Modifier.padding(top = 16.dp)) {
                     WarningBanner(
-                        "PocketPrint cannot see or reach Bluetooth printers, because " +
-                            "the Bluetooth permission was turned down. Android will " +
-                            "not ask again, so it has to be granted in app settings.",
+                        stringResource(R.string.bluetooth_blocked_warning),
                     )
                     Button(
                         onClick = { AppPermissions.openAppSettings(context) },
                         modifier = Modifier.padding(top = 8.dp),
-                    ) { Text("Open app settings") }
+                    ) { Text(stringResource(R.string.action_open_app_settings)) }
                 }
             }
         }
@@ -234,11 +230,11 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
         }
 
         item {
-            SectionHeader("Document")
+            SectionHeader(stringResource(R.string.printers_document))
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp)) {
                     Text(
-                        document?.displayName ?: "No document selected",
+                        document?.displayName ?: stringResource(R.string.printers_no_document),
                         style = MaterialTheme.typography.titleMedium,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
@@ -255,11 +251,11 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         Button(onClick = { pickDocument.launch(arrayOf("*/*")) }) {
-                            Text("Choose file")
+                            Text(stringResource(R.string.printers_choose_file))
                         }
                         if (document != null) {
                             OutlinedButton(onClick = { viewModel.setDocument(null) }) {
-                                Text("Clear")
+                                Text(stringResource(R.string.action_clear))
                             }
                         }
                     }
@@ -268,7 +264,7 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
         }
 
         item {
-            SectionHeader("Paper")
+            SectionHeader(stringResource(R.string.printers_paper))
             ChipRow(
                 items = MediaSize.ALL,
                 selected = options.mediaSize,
@@ -278,7 +274,7 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
         }
 
         item {
-            SectionHeader("Options")
+            SectionHeader(stringResource(R.string.printers_options))
             Row(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -289,7 +285,13 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
                         it.copy(copies = (it.copies - 1).coerceAtLeast(1))
                     }
                 }) { Text("-") }
-                Text("${options.copies} ${if (options.copies == 1) "copy" else "copies"}")
+                Text(
+                    pluralStringResource(
+                        R.plurals.printers_copies,
+                        options.copies,
+                        options.copies,
+                    ),
+                )
                 OutlinedButton(onClick = {
                     viewModel.updateOptions { it.copy(copies = it.copies + 1) }
                 }) { Text("+") }
@@ -297,7 +299,15 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
             ChipRow(
                 items = listOf(ColorMode.MONOCHROME, ColorMode.COLOR),
                 selected = options.colorMode,
-                label = { if (it == ColorMode.COLOR) "Colour" else "Black & white" },
+                label = {
+                    context.getString(
+                        if (it == ColorMode.COLOR) {
+                            R.string.printers_colour
+                        } else {
+                            R.string.printers_mono
+                        },
+                    )
+                },
                 onSelect = { mode -> viewModel.updateOptions { it.copy(colorMode = mode) } },
                 modifier = Modifier.padding(top = 8.dp),
             )
@@ -319,18 +329,18 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    "SAVED PRINTERS",
+                    stringResource(R.string.printers_saved),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.primary,
                 )
                 IconButton(onClick = { showAddDialog = true }) {
-                    Icon(Icons.Filled.Add, contentDescription = "Add printer manually")
+                    Icon(Icons.Filled.Add, contentDescription = stringResource(R.string.printers_add_manually))
                 }
             }
         }
 
         if (saved.isEmpty()) {
-            item { InfoBanner("No saved printers yet. Scan below, or add one by IP address.") }
+            item { InfoBanner(stringResource(R.string.printers_none_saved)) }
         }
 
         items(saved, key = { it.id }) { printer ->
@@ -345,13 +355,13 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
                             onClick = { viewModel.previewOn(printer) },
                             enabled = document != null,
                         ) {
-                            Icon(Icons.Filled.Visibility, contentDescription = "Preview")
+                            Icon(Icons.Filled.Visibility, contentDescription = stringResource(R.string.printers_preview))
                         }
                         IconButton(onClick = { editingId = printer.id }) {
-                            Icon(Icons.Filled.Tune, contentDescription = "Printer settings")
+                            Icon(Icons.Filled.Tune, contentDescription = stringResource(R.string.printers_settings))
                         }
                         IconButton(onClick = { viewModel.removePrinter(printer.id) }) {
-                            Icon(Icons.Filled.Delete, contentDescription = "Remove")
+                            Icon(Icons.Filled.Delete, contentDescription = stringResource(R.string.printers_remove))
                         }
                     }
                 },
@@ -366,9 +376,9 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
                     }
                 },
                 subtitleOverride = if (document == null) {
-                    "Choose a document first"
+                    stringResource(R.string.printers_choose_document_first)
                 } else {
-                    "Tap to print"
+                    stringResource(R.string.printers_tap_to_print)
                 },
             )
         }
@@ -382,7 +392,7 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    "DISCOVERED",
+                    stringResource(R.string.printers_discovered),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.primary,
                 )
@@ -396,7 +406,7 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
                             }
                         },
                     ) {
-                        Icon(Icons.Filled.Refresh, contentDescription = "Scan")
+                        Icon(Icons.Filled.Refresh, contentDescription = stringResource(R.string.printers_scan))
                     }
                 }
             }
@@ -408,8 +418,7 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
         if (discovered.isEmpty() && !discovery.scanning) {
             item {
                 InfoBanner(
-                    "Nothing found yet. Wi-Fi printers must be on the same network; " +
-                        "Bluetooth printers must already be paired in Android Settings.",
+                    stringResource(R.string.printers_nothing_found),
                 )
             }
         }
@@ -418,7 +427,9 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
             PrinterRow(
                 printer = printer,
                 trailing = {
-                    TextButton(onClick = { viewModel.savePrinter(printer) }) { Text("Save") }
+                    TextButton(onClick = { viewModel.savePrinter(printer) }) {
+                        Text(stringResource(R.string.action_save))
+                    }
                 },
                 enabled = true,
                 onClick = { viewModel.savePrinter(printer) },
@@ -426,26 +437,19 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
         }
 
         item {
-            SectionHeader("System printing")
+            SectionHeader(stringResource(R.string.printers_system_printing))
             when (printServiceStatus) {
                 PrintServiceState.Status.ENABLED -> InfoBanner(
-                    "PocketPrint is switched on as a print service. Saved printers " +
-                        "appear in every app's print dialog, including Bluetooth ones.",
+                    stringResource(R.string.print_service_enabled),
                 )
                 PrintServiceState.Status.DISABLED -> WarningBanner(
-                    "PocketPrint is not switched on as a print service, so it will " +
-                        "not appear in other apps' print dialogs. Turn it on under " +
-                        "Settings > Connected devices > Printing.",
+                    stringResource(R.string.print_service_disabled),
                 )
                 // Reading that switch is not permitted on every Android
                 // version, and claiming it is off when it might be on would
                 // send people to fix something already working.
                 PrintServiceState.Status.UNKNOWN -> InfoBanner(
-                    "To print from other apps, turn PocketPrint on under " +
-                        "Settings > Connected devices > Printing. Saved printers " +
-                        "appear in every app's print dialog, including Bluetooth " +
-                        "ones. This version of Android will not tell PocketPrint " +
-                        "whether the switch is already on.",
+                    stringResource(R.string.print_service_unknown),
                 )
             }
             Button(
@@ -458,7 +462,7 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
                     }
                 },
                 modifier = Modifier.padding(top = 8.dp, bottom = 24.dp),
-            ) { Text("Open print settings") }
+            ) { Text(stringResource(R.string.action_open_print_settings)) }
         }
     }
 
@@ -510,14 +514,18 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
                 val clipboard = context.getSystemService(ClipboardManager::class.java)
                 clipboard?.setPrimaryClip(
                     ClipData.newPlainText(
-                        "PocketPrint report",
+                        context.getString(R.string.report_clip_label),
                         viewModel.printerReport(target),
                     ),
                 )
                 // From Android 13 the system shows its own copy confirmation,
                 // and a Toast on top of it is just clutter.
                 if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-                    Toast.makeText(context, "Printer report copied", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(
+                        context,
+                        R.string.report_copied,
+                        Toast.LENGTH_SHORT,
+                    ).show()
                 }
             },
         )
@@ -584,7 +592,7 @@ private fun PrinterRow(
                 // the only evidence that exists that it prints at all.
                 if (printer.testPrintConfirmed) {
                     Text(
-                        "Confirmed by a test label",
+                        stringResource(R.string.printers_confirmed),
                         style = MaterialTheme.typography.bodySmall,
                         color = Color(0xFF2E7D32),
                         maxLines = 1,
@@ -601,6 +609,9 @@ private fun AddPrinterDialog(
     onDismiss: () -> Unit,
     onAdd: (name: String, host: String, port: Int, kind: ConnectionKind) -> Unit,
 ) {
+    // For the ChipRow label, which is a plain lambda rather than a composable.
+    val context = LocalContext.current
+
     var name by rememberSaveable { mutableStateOf("") }
     var host by rememberSaveable { mutableStateOf("") }
     var kind by rememberSaveable(stateSaver = enumSaver(ConnectionKind.entries.toList())) {
@@ -610,25 +621,33 @@ private fun AddPrinterDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Add printer by address") },
+        title = { Text(stringResource(R.string.add_printer_title)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("Name (optional)") },
+                    label = { Text(stringResource(R.string.add_printer_name)) },
                     singleLine = true,
                 )
                 OutlinedTextField(
                     value = host,
                     onValueChange = { host = it },
-                    label = { Text("IP address or hostname") },
+                    label = { Text(stringResource(R.string.add_printer_host)) },
                     singleLine = true,
                 )
                 ChipRow(
                     items = listOf(ConnectionKind.IPP, ConnectionKind.RAW9100),
                     selected = kind,
-                    label = { if (it == ConnectionKind.IPP) "IPP / AirPrint" else "Raw 9100" },
+                    label = {
+                        context.getString(
+                            if (it == ConnectionKind.IPP) {
+                                R.string.add_printer_ipp
+                            } else {
+                                R.string.add_printer_raw
+                            },
+                        )
+                    },
                     onSelect = {
                         kind = it
                         port = if (it == ConnectionKind.IPP) "631" else "9100"
@@ -637,7 +656,7 @@ private fun AddPrinterDialog(
                 OutlinedTextField(
                     value = port,
                     onValueChange = { port = it.filter(Char::isDigit).take(5) },
-                    label = { Text("Port") },
+                    label = { Text(stringResource(R.string.add_printer_port)) },
                     singleLine = true,
                 )
             }
@@ -646,8 +665,10 @@ private fun AddPrinterDialog(
             TextButton(
                 enabled = host.isNotBlank() && port.isNotBlank(),
                 onClick = { onAdd(name, host.trim(), port.toIntOrNull() ?: 631, kind) },
-            ) { Text("Add") }
+            ) { Text(stringResource(R.string.add_printer_add)) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) }
+        },
     )
 }

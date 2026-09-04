@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The languages this app ships.
+
+  One entry today, which is the honest state: the strings have only just left
+  the source. The point of the file is that adding a translation is now a
+  values-xx directory and one line here, rather than a rewrite - and Android
+  will not list an app under Settings > Apps > App languages at all without it,
+  no matter how many translations it has.
+-->
+<locale-config xmlns:android="http://schemas.android.com/apk/res/android"
+    android:defaultLocale="en">
+    <locale android:name="en" />
+</locale-config>

@@ -21,8 +21,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.gulshan.pocketprint.R
 import com.gulshan.pocketprint.label.EscPos
 import com.gulshan.pocketprint.label.LabelText
 import com.gulshan.pocketprint.ui.MediaSizeSaver
@@ -45,6 +48,7 @@ import com.gulshan.pocketprint.ui.vm.PrintersViewModel
  */
 @Composable
 fun LabelScreen(viewModel: PrintersViewModel) {
+    val context = LocalContext.current
     val saved by viewModel.savedPrinters.collectAsStateWithLifecycle()
     val options by viewModel.options.collectAsStateWithLifecycle()
 
@@ -52,10 +56,14 @@ fun LabelScreen(viewModel: PrintersViewModel) {
     // large screens and 17 removes the opt-out, so a rotation is not something
     // this form gets to avoid - and losing everything typed on one is the
     // oldest bug in Android.
-    var title by rememberSaveable { mutableStateOf("SAMPLE LABEL") }
+    var title by rememberSaveable {
+        mutableStateOf(context.getString(R.string.label_default_heading))
+    }
     var line2 by rememberSaveable { mutableStateOf("") }
     var line3 by rememberSaveable { mutableStateOf("") }
-    var barcode by rememberSaveable { mutableStateOf("TEST1234") }
+    var barcode by rememberSaveable {
+        mutableStateOf(context.getString(R.string.label_default_barcode))
+    }
     // By id: a Printer is not Parcelable, and the saved list is the truth anyway.
     var selectedPrinterId by rememberSaveable { mutableStateOf<String?>(null) }
     var language by rememberSaveable(stateSaver = enumSaver(PrintLanguage.entries.toList())) {
@@ -88,38 +96,38 @@ fun LabelScreen(viewModel: PrintersViewModel) {
             .padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        SectionHeader("Label content")
+        SectionHeader(stringResource(R.string.label_content))
 
         OutlinedTextField(
             value = title,
             onValueChange = { title = it },
-            label = { Text("Heading") },
+            label = { Text(stringResource(R.string.label_heading)) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
         OutlinedTextField(
             value = line2,
             onValueChange = { line2 = it },
-            label = { Text("Line 2") },
+            label = { Text(stringResource(R.string.label_line2)) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
         OutlinedTextField(
             value = line3,
             onValueChange = { line3 = it },
-            label = { Text("Line 3") },
+            label = { Text(stringResource(R.string.label_line3)) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
         OutlinedTextField(
             value = barcode,
             onValueChange = { barcode = it },
-            label = { Text("Barcode / QR data") },
+            label = { Text(stringResource(R.string.label_barcode)) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
 
-        SectionHeader("Label size")
+        SectionHeader(stringResource(R.string.label_size))
         ChipRow(
             items = MediaSize.LABELS,
             selected = media,
@@ -127,7 +135,7 @@ fun LabelScreen(viewModel: PrintersViewModel) {
             onSelect = { media = it },
         )
 
-        SectionHeader("Command language")
+        SectionHeader(stringResource(R.string.label_language))
         ChipRow(
             items = languageChoices,
             selected = language,
@@ -141,11 +149,10 @@ fun LabelScreen(viewModel: PrintersViewModel) {
             onSelect = { language = it },
         )
 
-        SectionHeader("Printer")
+        SectionHeader(stringResource(R.string.label_printer))
         if (labelPrinters.isEmpty()) {
             InfoBanner(
-                "No label or receipt printers saved yet. Pair one over Bluetooth, " +
-                    "then save it on the Print tab.",
+                stringResource(R.string.label_no_printers),
             )
         } else {
             ChipRow(
@@ -182,12 +189,12 @@ fun LabelScreen(viewModel: PrintersViewModel) {
                     barcodeData = barcode,
                     receiptWidthDots = printer.capabilities.rasterWidthDots ?: 576,
                 )
-                viewModel.printRawLabel(printer, bytes, "Label")
+                viewModel.printRawLabel(printer, bytes, context.getString(R.string.label_job_name))
             },
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(top = 16.dp),
-        ) { Text("Print label") }
+        ) { Text(stringResource(R.string.label_print)) }
 
         status?.let {
             Card(Modifier.fillMaxWidth()) {
@@ -202,15 +209,7 @@ fun LabelScreen(viewModel: PrintersViewModel) {
         }
 
         InfoBanner(
-            "The barcode is always generated by the printer's own firmware rather " +
-                "than sent as an image, which lands the bars on exact dot " +
-                "boundaries and keeps them scannable at small sizes.\n\n" +
-                "Text uses the printer's built-in fonts when it can. Those fonts " +
-                "hold Latin characters and nothing else, so anything they cannot " +
-                "carry - Hindi, Arabic, Thai, Chinese - is laid out on the phone " +
-                "and sent as an image instead. That takes a little longer over " +
-                "Bluetooth and prints correctly, rather than being fast and full " +
-                "of question marks.",
+            stringResource(R.string.label_help),
         )
         Column(Modifier.padding(bottom = 24.dp)) {}
     }

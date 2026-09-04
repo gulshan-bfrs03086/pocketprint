@@ -20,7 +20,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.gulshan.pocketprint.R
 import com.gulshan.pocketprint.model.LabelStock
 import com.gulshan.pocketprint.model.MediaSensing
 import com.gulshan.pocketprint.model.MediaSize
@@ -46,6 +49,10 @@ fun PrinterSettingsDialog(
     onCopyReport: () -> Unit,
     onCalibrate: (Printer) -> Unit,
 ) {
+    // Needed for the ChipRow labels, which are plain lambdas rather than
+    // composable ones and so cannot call stringResource.
+    val context = LocalContext.current
+
     var name by rememberSaveable { mutableStateOf(printer.displayName) }
     var language by rememberSaveable(stateSaver = enumSaver(PrintLanguage.entries.toList())) {
         mutableStateOf(printer.capabilities.languages.firstOrNull() ?: PrintLanguage.ESC_POS)
@@ -103,7 +110,7 @@ fun PrinterSettingsDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Printer settings") },
+        title = { Text(stringResource(R.string.printer_settings_title)) },
         text = {
             Column(
                 Modifier.verticalScroll(rememberScrollState()),
@@ -112,12 +119,12 @@ fun PrinterSettingsDialog(
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("Name") },
+                    label = { Text(stringResource(R.string.printer_name)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
 
-                Text("Command language", style = MaterialTheme.typography.labelMedium)
+                Text(stringResource(R.string.printer_language), style = MaterialTheme.typography.labelMedium)
                 ChipRow(
                     items = listOf(
                         PrintLanguage.TSPL,
@@ -139,13 +146,12 @@ fun PrinterSettingsDialog(
                     onSelect = { language = it },
                 )
                 Text(
-                    "If the printer spits out pages of readable commands instead of " +
-                        "your label, this is the setting that is wrong.",
+                    stringResource(R.string.printer_language_help),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
 
-                Text("Default stock", style = MaterialTheme.typography.labelMedium)
+                Text(stringResource(R.string.printer_default_stock), style = MaterialTheme.typography.labelMedium)
                 ChipRow(
                     items = sizes,
                     selected = media,
@@ -161,7 +167,7 @@ fun PrinterSettingsDialog(
                     OutlinedTextField(
                         value = customWidth,
                         onValueChange = { customWidth = it.filter { c -> c.isDigit() || c == '.' } },
-                        label = { Text("Width mm") },
+                        label = { Text(stringResource(R.string.printer_custom_width)) },
                         singleLine = true,
                         modifier = Modifier.weight(1f),
                     )
@@ -170,7 +176,7 @@ fun PrinterSettingsDialog(
                         onValueChange = {
                             customHeight = it.filter { c -> c.isDigit() || c == '.' }
                         },
-                        label = { Text("Height mm") },
+                        label = { Text(stringResource(R.string.printer_custom_height)) },
                         singleLine = true,
                         modifier = Modifier.weight(1f),
                     )
@@ -186,28 +192,27 @@ fun PrinterSettingsDialog(
                                 customHeight = ""
                             }
                         },
-                    ) { Text("Add") }
+                    ) { Text(stringResource(R.string.printer_custom_add)) }
                 }
 
                 if (isLabelPrinter) {
-                    Text("Label stock", style = MaterialTheme.typography.labelMedium)
+                    Text(stringResource(R.string.printer_stock_section), style = MaterialTheme.typography.labelMedium)
                     ChipRow(
                         items = MediaSensing.entries.toList(),
                         selected = sensing,
                         label = {
-                            when (it) {
-                                MediaSensing.GAP -> "Gap"
-                                MediaSensing.BLACK_MARK -> "Black mark"
-                                MediaSensing.CONTINUOUS -> "Continuous"
-                            }
+                            context.getString(
+                                when (it) {
+                                    MediaSensing.GAP -> R.string.printer_sensing_gap
+                                    MediaSensing.BLACK_MARK -> R.string.printer_sensing_black_mark
+                                    MediaSensing.CONTINUOUS -> R.string.printer_sensing_continuous
+                                },
+                            )
                         },
                         onSelect = { sensing = it },
                     )
                     Text(
-                        "How the printer finds the top of the next label. Set to look " +
-                            "for a gap that is not there, it feeds forward hunting for " +
-                            "one and stops with a paper fault. Nothing in the protocol " +
-                            "can tell you which is right, which is why it is a setting.",
+                        stringResource(R.string.printer_sensing_help),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -218,11 +223,13 @@ fun PrinterSettingsDialog(
                             onValueChange = { gapMm = it.filter { c -> c.isDigit() || c == '.' } },
                             label = {
                                 Text(
-                                    if (sensing == MediaSensing.GAP) {
-                                        "Gap height in mm"
-                                    } else {
-                                        "Black mark height in mm"
-                                    },
+                                    stringResource(
+                                        if (sensing == MediaSensing.GAP) {
+                                            R.string.printer_gap_height
+                                        } else {
+                                            R.string.printer_mark_height
+                                        },
+                                    ),
                                 )
                             },
                             singleLine = true,
@@ -230,64 +237,66 @@ fun PrinterSettingsDialog(
                         )
                     }
 
-                    Stepper("Darkness", darkness, 0..15) { darkness = it }
+                    Stepper(stringResource(R.string.printer_darkness), darkness, 0..15) { darkness = it }
                     Text(
-                        "The most common adjustment there is. Too light and barcodes " +
-                            "scan intermittently or not at all; too dark and thin bars " +
-                            "bleed together and also stop scanning.",
+                        stringResource(R.string.printer_darkness_help),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
 
-                    Stepper("Speed (ips)", speed, 1..12) { speed = it }
+                    Stepper(stringResource(R.string.printer_speed), speed, 1..12) { speed = it }
 
                     TextButton(onClick = { onCalibrate(edited()) }) {
-                        Text("Calibrate media sensor")
+                        Text(stringResource(R.string.printer_calibrate))
                     }
                     Text(
-                        "Feeds a few labels while the printer works out where the " +
-                            "gaps are. Worth doing when printing drifts onto the join " +
-                            "between two labels.",
+                        stringResource(R.string.printer_calibrate_help),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
 
-                Text("Resolution", style = MaterialTheme.typography.labelMedium)
+                Text(stringResource(R.string.printer_resolution), style = MaterialTheme.typography.labelMedium)
                 ChipRow(
                     items = listOf(180, 203, 300, 600),
                     selected = dpi,
-                    label = { "$it dpi" },
+                    label = { context.getString(R.string.settings_dpi, it) },
                     onSelect = { dpi = it },
                 )
 
                 OutlinedTextField(
                     value = widthDots,
                     onValueChange = { widthDots = it.filter(Char::isDigit).take(5) },
-                    label = { Text("Print head width in dots") },
+                    label = { Text(stringResource(R.string.printer_head_width)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Text(
-                    "203 dpi heads: 384 for 58 mm, 576 for 80 mm, 812 for 4 inch.",
+                    stringResource(R.string.printer_head_width_help),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
 
                 TextButton(onClick = { onTestPage(edited()) }) {
-                    Text("Send test page with these settings")
+                    Text(stringResource(R.string.printer_test_page))
                 }
 
                 // "It doesn't print" is not something anyone can act on. This
                 // is: the dialect, the head width, the ink the rasteriser put
                 // on the page, and the bytes that reached the printer.
                 TextButton(onClick = onCopyReport) {
-                    Text("Copy printer report")
+                    Text(stringResource(R.string.printer_copy_report))
                 }
             }
         },
-        confirmButton = { TextButton(onClick = { onSave(edited()) }) { Text("Save") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        confirmButton = {
+            TextButton(onClick = { onSave(edited()) }) {
+                Text(stringResource(R.string.action_save))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) }
+        },
     )
 }
 
@@ -299,7 +308,11 @@ private fun Stepper(label: String, value: Int, range: IntRange, onChange: (Int) 
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("$label: $value", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+        Text(
+            stringResource(R.string.printer_stepper, label, value),
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.weight(1f),
+        )
         OutlinedButton(
             onClick = { onChange((value - 1).coerceIn(range)) },
             enabled = value > range.first,

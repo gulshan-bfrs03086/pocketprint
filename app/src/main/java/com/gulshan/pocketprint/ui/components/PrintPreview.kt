@@ -20,7 +20,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.gulshan.pocketprint.R
 import com.gulshan.pocketprint.ui.vm.PreviewState
 
 /**
@@ -35,7 +37,7 @@ import com.gulshan.pocketprint.ui.vm.PreviewState
 fun PrintPreviewDialog(state: PreviewState, onDismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Preview on ${state.printerName}") },
+        title = { Text(stringResource(R.string.preview_title, state.printerName)) },
         text = {
             Column(
                 Modifier.verticalScroll(rememberScrollState()),
@@ -46,14 +48,15 @@ fun PrintPreviewDialog(state: PreviewState, onDismiss: () -> Unit) {
 
                     state.bitmap != null -> {
                         Text(
-                            "The first page, exactly as it will be sent: one bit per " +
-                                "dot, at the printer's own head width and resolution.",
+                            stringResource(R.string.preview_explanation),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Image(
                             bitmap = state.bitmap.asImageBitmap(),
-                            contentDescription = "Print preview",
+                            contentDescription = stringResource(
+                                R.string.preview_content_description,
+                            ),
                             contentScale = ContentScale.FillWidth,
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -64,19 +67,25 @@ fun PrintPreviewDialog(state: PreviewState, onDismiss: () -> Unit) {
                                 .heightIn(max = 420.dp),
                         )
                         Text(
-                            "${state.bitmap.width} x ${state.bitmap.height} dots",
+                            stringResource(
+                                R.string.preview_dimensions,
+                                state.bitmap.width,
+                                state.bitmap.height,
+                            ),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
 
                     else -> Text(
-                        state.message ?: "Nothing to preview.",
+                        state.message ?: stringResource(R.string.preview_none),
                         style = MaterialTheme.typography.bodyMedium,
                     )
                 }
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_close)) }
+        },
     )
 }

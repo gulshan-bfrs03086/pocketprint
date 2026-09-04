@@ -12,7 +12,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.gulshan.pocketprint.R
 
 /**
  * Shown once, before anything is asked for.
@@ -37,35 +39,26 @@ fun FirstRunScreen(onContinue: () -> Unit) {
             .padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Text("PocketPrint", style = MaterialTheme.typography.headlineMedium)
+        Text(stringResource(R.string.app_name), style = MaterialTheme.typography.headlineMedium)
 
         Text(
-            "Printing from Android to a Bluetooth thermal printer, without a cloud " +
-                "service, an account, or a PC in the middle. Everything happens on " +
-                "this device and your own network.",
+            stringResource(R.string.first_run_intro),
             style = MaterialTheme.typography.bodyMedium,
         )
 
         Section(
-            "Bluetooth, when you set up a printer",
-            "To send the printer its job, and nothing else. Finding it is done by " +
-                "Android's own device picker, which scans on PocketPrint's behalf — " +
-                "so this app never scans, and never asks for a location permission on " +
-                "any version of Android.",
+            stringResource(R.string.first_run_bluetooth_title),
+            stringResource(R.string.first_run_bluetooth_body),
         )
 
         Section(
-            "Notifications, when you print",
-            "A print job runs in the background so that leaving the app does not " +
-                "kill the transfer. The notification is how you see progress and how " +
-                "you cancel a job that has gone wrong.",
+            stringResource(R.string.first_run_notifications_title),
+            stringResource(R.string.first_run_notifications_body),
         )
 
         Section(
-            "Nothing else",
-            "No account, no analytics, no network calls except to your own printer. " +
-                "Documents are read through Android's file picker, so PocketPrint " +
-                "never asks for access to your storage or your photos.",
+            stringResource(R.string.first_run_nothing_title),
+            stringResource(R.string.first_run_nothing_body),
         )
 
         Button(
@@ -73,12 +66,10 @@ fun FirstRunScreen(onContinue: () -> Unit) {
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(top = 8.dp),
-        ) { Text("Get started") }
+        ) { Text(stringResource(R.string.first_run_start)) }
 
         Text(
-            "Nothing is requested yet. Each permission is asked for at the moment " +
-                "it is needed, and the app keeps working without them - it just " +
-                "cannot do the part that needs them.",
+            stringResource(R.string.first_run_footnote),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
