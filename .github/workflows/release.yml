@@ -104,8 +104,36 @@ jobs:
           APKSIGNER="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)"
           for apk in dist/*.apk; do
             echo "== $apk"
-            "$APKSIGNER" verify --verbose --print-certs "$apk"
+            "$APKSIGNER" verify --verbose --print-certs "$apk" |
+              tee "$RUNNER_TEMP/$(basename "$apk").certs"
           done
+
+          # The release notes tell people to check their download against this
+          # fingerprint, so it is read back from the signed APKs rather than
+          # written down anywhere. Hardcoding it would mean the notes keep
+          # vouching for the old key on the day the signing key changes, which
+          # is the one day anybody reads them.
+          digests() {
+            grep -h "certificate $1 digest:" "$RUNNER_TEMP"/*.certs |
+              awk '{ print $NF }' | sort -u
+          }
+          cert_sha256="$(digests SHA-256)"
+          cert_sha1="$(digests SHA-1)"
+
+          # One certificate, or the notes would vouch for a key that signed
+          # only half the release.
+          if [ -z "$cert_sha256" ] ||
+             [ "$(printf '%s\n' "$cert_sha256" | wc -l)" -ne 1 ]; then
+            echo "::error::Expected one signing certificate across the APKs, found:" >&2
+            printf '%s\n' "$cert_sha256" >&2
+            exit 1
+          fi
+
+          echo "Signing certificate SHA-256: $cert_sha256"
+          {
+            echo "CERT_SHA256=$cert_sha256"
+            echo "CERT_SHA1=$cert_sha1"
+          } >> "$GITHUB_ENV"
 
       - name: Checksums
         run: |
@@ -169,6 +197,25 @@ jobs:
             echo "| \`pocketprint-legacy.apk\` | 7.0+ (API 24) | none |"
             echo
             echo "Checksums are in the attached \`SHA256SUMS.txt\`."
+            echo
+            echo "## Checking what you downloaded"
+            echo
+            echo "Both APKs carry a single signing certificate:"
+            echo
+            echo '```'
+            echo "SHA-256  $CERT_SHA256"
+            echo "SHA-1    $CERT_SHA1"
+            echo '```'
+            echo
+            echo "To confirm a file you have is really this build:"
+            echo
+            echo '```'
+            echo "apksigner verify --print-certs pocketprint-modern.apk"
+            echo '```'
+            echo
+            echo "A different fingerprint means a different key, whatever the" \
+                 "filename says - and Android will refuse to install it over" \
+                 "this one."
           } > dist/NOTES.md
 
           gh release create "$GITHUB_REF_NAME" \
