@@ -56,11 +56,19 @@ jobs:
       # Android refuses to install a package whose required hardware features
       # the device lacks, reporting only "Can't install the app". This has
       # happened for real, so it is a build failure rather than a review item.
-      # Runs against every variant. The legacy flavour is the one at risk:
-      # it carries ACCESS_FINE_LOCATION, which implies a required location
-      # feature unless explicitly declared optional.
+      # Runs against every variant. Nothing declares a location permission any
+      # more, so nothing should imply a location feature - which is exactly the
+      # state worth defending, since the last time one crept in the app became
+      # uninstallable on hardware with no GPS.
       - name: No required hardware features
         run: ./scripts/check-required-features.sh
+
+      # What the app asks the user for is a promise, and it is written out in
+      # prose in four places that no compiler reads. All four went stale at once
+      # after the permissions were cut, and one of them - the release notes
+      # table - was caught by hand minutes before it went public.
+      - name: Permissions match what is documented
+        run: ./scripts/check-permissions.sh
 
       # One class lives inside the android.print package to reach a
       # package-private constructor, which is unsupported and can stop working
