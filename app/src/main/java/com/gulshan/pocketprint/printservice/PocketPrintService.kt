@@ -11,6 +11,7 @@ import android.printservice.PrintJob
 import android.printservice.PrintService
 import android.printservice.PrinterDiscoverySession
 import android.util.Log
+import com.gulshan.pocketprint.R
 import com.gulshan.pocketprint.ServiceLocator
 import com.gulshan.pocketprint.model.ColorMode
 import com.gulshan.pocketprint.model.DuplexMode
@@ -19,6 +20,7 @@ import com.gulshan.pocketprint.model.Orientation
 import com.gulshan.pocketprint.model.PrintOptions
 import com.gulshan.pocketprint.model.PrintResult
 import com.gulshan.pocketprint.model.Printer
+import com.gulshan.pocketprint.print.JobError
 import com.gulshan.pocketprint.print.JobListener
 import com.gulshan.pocketprint.print.PrinterAvailability
 import com.gulshan.pocketprint.render.Spool
@@ -74,7 +76,7 @@ class PocketPrintService : PrintService() {
         val localId = info.printerId?.localId
 
         if (localId == null) {
-            printJob.fail("No printer was selected")
+            printJob.fail(getString(R.string.system_no_printer_selected))
             return
         }
 
@@ -86,7 +88,7 @@ class PocketPrintService : PrintService() {
         // read of the document together with the rest of the handle access.
         val descriptor = runCatching { printJob.document?.data }.getOrNull()
         if (descriptor == null) {
-            printJob.fail("Could not read the document from the print system")
+            printJob.fail(getString(R.string.system_document_unreadable))
             return
         }
 
@@ -99,13 +101,13 @@ class PocketPrintService : PrintService() {
                     .firstOrNull { it.id == localId }
 
                 if (printer == null) {
-                    fail(printJob, "That printer is no longer saved in PocketPrint")
+                    fail(printJob, getString(R.string.system_printer_gone))
                     return@launch
                 }
 
                 val spooled = spoolDocument(descriptor)
                 if (spooled == null) {
-                    fail(printJob, "Could not read the document from the print system")
+                    fail(printJob, getString(R.string.system_document_unreadable))
                     return@launch
                 }
 
@@ -125,8 +127,10 @@ class PocketPrintService : PrintService() {
                                     if (waiting) {
                                         block(
                                             printJob,
-                                            "Waiting for another job on " +
+                                            getString(
+                                                R.string.system_waiting_for_printer,
                                                 printer.displayName,
+                                            ),
                                         )
                                     } else {
                                         resume(printJob)
@@ -160,7 +164,7 @@ class PocketPrintService : PrintService() {
                 }
             } catch (t: Throwable) {
                 Log.e(TAG, "job failed", t)
-                fail(printJob, t.message ?: "Printing failed")
+                fail(printJob, t.message ?: getString(R.string.system_print_failed))
             } finally {
                 // jobKey was captured on the main thread; reading printJob.id
                 // here would throw and escape the coroutine.
@@ -252,8 +256,15 @@ class PocketPrintService : PrintService() {
         if (printJob.isBlocked) printJob.start()
     }
 
+    /**
+     * The dialog this lands in belongs to another app, which has no idea what a
+     * closed RFCOMM socket is. Where the failure is one of the recognised ones,
+     * it goes out as the sentence a person can act on; where it is not, the raw
+     * message goes out unchanged rather than being replaced by a vaguer one.
+     */
     private fun fail(printJob: PrintJob, message: String) = onMain {
-        if (!printJob.isFailed) printJob.fail(message)
+        val readable = JobError.explain(message)?.let { getString(it) } ?: message
+        if (!printJob.isFailed) printJob.fail(readable)
     }
 
     private fun onMain(block: () -> Unit) {

@@ -2,6 +2,7 @@ package com.gulshan.pocketprint.print
 
 import android.content.Context
 import android.util.Log
+import com.gulshan.pocketprint.R
 import com.gulshan.pocketprint.label.EscPos
 import com.gulshan.pocketprint.label.Tspl
 import com.gulshan.pocketprint.label.Zpl
@@ -103,11 +104,11 @@ class PrinterAutoSetup(private val context: Context) {
     }
 
     private fun initialSteps() = listOf(
-        SetupStep(STEP_CONNECT, "Pair and connect"),
-        SetupStep(STEP_DETECT, "Ask the printer what it speaks"),
-        SetupStep(STEP_CONFIGURE, "Work out label size and head width"),
-        SetupStep(STEP_TEST, "Print a test label"),
-        SetupStep(STEP_SAVE, "Save and offer to Android"),
+        SetupStep(STEP_CONNECT, context.getString(R.string.setup_step_connect)),
+        SetupStep(STEP_DETECT, context.getString(R.string.setup_step_detect)),
+        SetupStep(STEP_CONFIGURE, context.getString(R.string.setup_step_configure)),
+        SetupStep(STEP_TEST, context.getString(R.string.setup_step_test)),
+        SetupStep(STEP_SAVE, context.getString(R.string.setup_step_save)),
     )
 
     /**
@@ -180,10 +181,16 @@ class PrinterAutoSetup(private val context: Context) {
                 STEP_DETECT,
                 StepState.DONE,
                 if (detected != null) {
-                    "${label(language)} confirmed by the printer" +
-                        (detected.model?.let { " ($it)" } ?: "")
+                    val model = detected.model
+                    if (model == null) {
+                        context.getString(R.string.setup_detect_confirmed, label(language))
+                    } else {
+                        context.getString(
+                            R.string.setup_detect_confirmed_model, label(language), model,
+                        )
+                    }
                 } else {
-                    "No reply, so ${label(language)} assumed from the name"
+                    context.getString(R.string.setup_detect_assumed, label(language))
                 },
             )
             push()
@@ -214,7 +221,9 @@ class PrinterAutoSetup(private val context: Context) {
             mark(
                 STEP_CONFIGURE,
                 StepState.DONE,
-                "${media.label}, $ASSUMED_DPI dpi, $widthDots dots wide",
+                context.getString(
+                    R.string.setup_configured, media.label, ASSUMED_DPI, widthDots,
+                ),
             )
             push()
 
@@ -226,7 +235,7 @@ class PrinterAutoSetup(private val context: Context) {
                     // Explicit, rather than relying on the flow emissions below
                     // to happen to delay the close long enough.
                     open.finish()
-                    mark(STEP_TEST, StepState.DONE, "Sent to the printer")
+                    mark(STEP_TEST, StepState.DONE, context.getString(R.string.setup_test_sent))
                 } catch (t: Throwable) {
                     // A failed test page is worth reporting but does not
                     // invalidate the configuration we just worked out.
@@ -239,7 +248,7 @@ class PrinterAutoSetup(private val context: Context) {
 
             mark(STEP_SAVE, StepState.RUNNING)
             push()
-            mark(STEP_SAVE, StepState.DONE, "Now offered in every app's print dialog")
+            mark(STEP_SAVE, StepState.DONE, context.getString(R.string.setup_saved))
             push(finished = true, result = configured)
         } finally {
             runCatching { open.close() }

@@ -125,7 +125,7 @@ fun JobsScreen(viewModel: PrintersViewModel) {
                     // at all to somebody holding a printer.
                     JobError.explain(job.error)?.let { advice ->
                         Text(
-                            advice,
+                            stringResource(advice),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.padding(top = 4.dp),

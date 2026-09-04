@@ -190,4 +190,104 @@
     <string name="add_printer_raw">Raw 9100</string>
     <string name="add_printer_port">Port</string>
     <string name="add_printer_add">Add</string>
+
+    <!-- What a failure means, as opposed to what the transport said.
+         The raw message is never replaced by these: it is what makes a printer
+         report useful, and it stays in English because that is where it gets
+         pasted. These are the sentence above it. -->
+    <string name="job_error_asleep">The printer closed the connection part way through. Thermal printers sleep aggressively - wake it and try again.</string>
+    <string name="job_error_stalled">The printer stopped taking bytes without closing the connection, which usually means it is out of paper, its cover is open, or it is waiting at a fault it has not reported.</string>
+    <string name="job_error_bluetooth_off">Turn Bluetooth on and try again.</string>
+    <string name="job_error_bluetooth_permission">PocketPrint needs the Bluetooth permission to reach this printer. Grant it in Android\'s app settings.</string>
+    <string name="job_error_refused">The printer answered but is not listening on that port. Check the port number - raw printing is usually 9100, IPP is 631.</string>
+    <string name="job_error_timeout">The printer did not answer. Check it is switched on, and that it is in range or on the same network.</string>
+    <string name="job_error_unreachable">That address cannot be reached from this network. A printer on a different subnet, or a phone on mobile data rather than Wi-Fi, will both look like this.</string>
+    <string name="job_error_busy">Something else is already connected to this printer. These printers accept one connection at a time.</string>
+    <string name="job_error_pairing">Pairing failed. Remove the printer in Android\'s Bluetooth settings and pair it again - the PIN is usually 0000.</string>
+    <string name="job_error_no_printer">That printer is no longer saved. Set it up again.</string>
+    <string name="job_error_out_of_media">The printer reports it is out of media.</string>
+
+    <!-- Job outcomes and progress.
+         The IPP job-state names and job-state-reasons keywords that some of
+         these carry are protocol vocabulary, like the dialect names, and are
+         left as the protocol spells them. -->
+    <string name="unconfirmed_bluetooth">Bluetooth printing carries no acknowledgement. The printer accepted the bytes; only the label tells you what it did with them.</string>
+    <string name="unconfirmed_usb">USB printing carries no acknowledgement. The printer accepted the bytes; only the page tells you what it did with them.</string>
+    <string name="unconfirmed_raw">Raw port 9100 carries no acknowledgement. The printer accepted the bytes; only the page tells you what it did with them.</string>
+    <string name="unconfirmed_ipp">The printer accepted the job but never said what became of it.</string>
+    <string name="ipp_no_job_id">The printer accepted the job but gave it no id, so its progress cannot be followed.</string>
+    <string name="ipp_stopped_answering">The printer stopped answering questions about job %1$d, so what became of it is unknown.</string>
+    <string name="ipp_job_forgotten">The printer no longer has a record of job %1$d. That usually means it finished, but the printer never said so.</string>
+    <string name="ipp_refused_to_report">The printer refused to report on job %1$d (%2$s).</string>
+    <string name="ipp_still_working">The printer was still %1$s after %2$s, so it was left to get on with it.</string>
+    <string name="ipp_working_on_it">working on the job</string>
+    <string name="ipp_job_ended">The printer %1$s the job</string>
+    <string name="ipp_job_ended_because">The printer %1$s the job: %2$s</string>
+    <string name="printer_rejected_job">Printer rejected job: %1$s</string>
+    <string name="printer_rejected_unsupported">Printer rejected job: %1$s (unsupported: %2$s)</string>
+    <string name="queue_waiting">Waiting for another job on %1$s to finish</string>
+    <plurals name="duration_minutes">
+        <item quantity="one">%1$d minute</item>
+        <item quantity="other">%1$d minutes</item>
+    </plurals>
+    <plurals name="duration_seconds">
+        <item quantity="one">%1$d second</item>
+        <item quantity="other">%1$d seconds</item>
+    </plurals>
+
+    <!-- The print job notification -->
+    <string name="notification_job">Print job</string>
+    <string name="notification_preparing">Preparing</string>
+    <string name="notification_unknown_printer">Unknown printer</string>
+    <string name="notification_printer_not_found">Printer not found</string>
+    <string name="notification_connecting">Connecting to %1$s</string>
+    <string name="notification_sending">Sending to %1$s</string>
+    <string name="notification_printer_status">%1$s: %2$s</string>
+    <string name="notification_printed">%1$s printed it</string>
+    <string name="notification_sent_unconfirmed">Sent to %1$s - not confirmed</string>
+    <string name="notification_stopped_title">Print job stopped</string>
+    <string name="notification_stopped_body">Android stopped this job because it ran too long.</string>
+    <string name="job_cancelled">Cancelled before the job finished</string>
+
+    <!-- Failures handed back to another app\'s print dialog -->
+    <string name="system_no_printer_selected">No printer was selected</string>
+    <string name="system_document_unreadable">Could not read the document from the print system</string>
+    <string name="system_printer_gone">That printer is no longer saved in PocketPrint</string>
+    <string name="system_print_failed">Printing failed</string>
+    <string name="system_waiting_for_printer">Waiting for another job on %1$s</string>
+
+    <!-- Auto setup -->
+    <string name="setup_step_connect">Pair and connect</string>
+    <string name="setup_step_detect">Ask the printer what it speaks</string>
+    <string name="setup_step_configure">Work out label size and head width</string>
+    <string name="setup_step_test">Print a test label</string>
+    <string name="setup_step_save">Save and offer to Android</string>
+    <string name="setup_detect_confirmed">%1$s confirmed by the printer</string>
+    <string name="setup_detect_confirmed_model">%1$s confirmed by the printer (%2$s)</string>
+    <string name="setup_detect_assumed">No reply, so %1$s assumed from the name</string>
+    <string name="setup_configured">%1$s, %2$d dpi, %3$d dots wide</string>
+    <string name="setup_test_sent">Sent to the printer</string>
+    <string name="setup_saved">Now offered in every app\'s print dialog</string>
+
+    <!-- In-app label and job messages -->
+    <string name="label_sending">Sending %1$d bytes to %2$s…</string>
+    <string name="label_printed">%1$s printed %2$d bytes</string>
+    <string name="label_sent">Sent %1$d bytes. %2$s</string>
+    <string name="label_failed">Failed: %1$s</string>
+    <string name="calibrate_unsupported">%1$s has no media sensor to calibrate.</string>
+    <string name="reprint_printer_gone">%1$s is no longer saved, so this job cannot be repeated.</string>
+    <string name="reprint_too_old">This job was printed before PocketPrint kept enough to repeat it.</string>
+    <string name="reprint_document_gone">The copy of %1$s has been cleared from the cache, so it has to be chosen again.</string>
+    <string name="reprint_started">Printing %1$s again on %2$s.</string>
+    <string name="preview_not_applicable">%1$s takes the document as it is, so there is nothing here that the document itself does not already show. Preview is for printers that reduce a page to one bit per dot.</string>
+    <string name="preview_failed">The page could not be rendered.</string>
+
+    <!-- Share target -->
+    <string name="share_multiple">PocketPrint prints one document at a time; using the first of %1$d shared files.</string>
+    <string name="share_not_a_file">PocketPrint accepts shared files, not raw file paths.</string>
+    <string name="share_unreadable">That file could not be read: %1$s</string>
+    <string name="share_cannot_print">PocketPrint can\'t print %1$s (%2$s).</string>
+    <string name="share_too_large">%1$s is over the %2$d MB limit for a print job.</string>
+    <string name="share_too_slow">%1$s took too long to read; nothing was printed.</string>
+    <string name="share_text_truncated">That text is very long; printing the first %1$d characters.</string>
 </resources>

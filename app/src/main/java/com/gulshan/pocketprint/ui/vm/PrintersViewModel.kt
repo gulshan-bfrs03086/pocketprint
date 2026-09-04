@@ -4,6 +4,7 @@ import android.app.Application
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.gulshan.pocketprint.R
 import com.gulshan.pocketprint.ServiceLocator
 import com.gulshan.pocketprint.data.AppSettings
 import com.gulshan.pocketprint.data.StorageHealth
@@ -399,23 +400,31 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
      * switched off no longer shows as a success.
      */
     fun printRawLabel(printer: Printer, bytes: ByteArray, name: String) = viewModelScope.launch {
-        _labelStatus.value = "Sending ${bytes.size} bytes to ${printer.displayName}..."
+        val app = getApplication<android.app.Application>()
+        _labelStatus.value =
+            app.getString(R.string.label_sending, bytes.size, printer.displayName)
         val jobId = java.util.UUID.randomUUID().toString()
         val startedAt = System.currentTimeMillis()
 
         val result = engine.printRaw(
             printer, bytes, name, _options.value,
             JobListener(
-                onStatus = { status -> _labelStatus.value = "${printer.displayName}: $status" },
+                onStatus = { status ->
+                    _labelStatus.value = app.getString(
+                        R.string.notification_printer_status, printer.displayName, status,
+                    )
+                },
             ),
         )
 
         _labelStatus.value = when (result) {
-            is PrintResult.Completed ->
-                "${printer.displayName} printed ${result.bytesSent} bytes"
-            is PrintResult.Sent ->
-                "Sent ${result.bytesSent} bytes. ${result.reason}"
-            is PrintResult.Failure -> "Failed: ${result.message}"
+            is PrintResult.Completed -> app.getString(
+                R.string.label_printed, printer.displayName, result.bytesSent.toInt(),
+            )
+            is PrintResult.Sent -> app.getString(
+                R.string.label_sent, result.bytesSent.toInt(), result.reason,
+            )
+            is PrintResult.Failure -> app.getString(R.string.label_failed, result.message)
         }
 
         jobRepo.upsert(
@@ -476,8 +485,8 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
             PrintLanguage.TSPL -> Tspl(media, dpi).calibrate(printer.stock).build()
             PrintLanguage.ZPL -> Zpl(media, dpi).calibrate(printer.stock).build()
             else -> {
-                _labelStatus.value =
-                    "${printer.displayName} has no media sensor to calibrate."
+                _labelStatus.value = getApplication<android.app.Application>()
+                    .getString(R.string.calibrate_unsupported, printer.displayName)
                 return@launch
             }
         }
@@ -497,25 +506,24 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
     fun reprint(record: PrintJobRecord) = viewModelScope.launch {
         val printer = printerRepo.find(record.printerId)
         if (printer == null) {
-            _jobsMessage.value =
-                "${record.printerName} is no longer saved, so this job cannot be repeated."
+            _jobsMessage.value = getApplication<android.app.Application>()
+                .getString(R.string.reprint_printer_gone, record.printerName)
             return@launch
         }
 
         val uri = record.documentUri
         val options = record.options
         if (uri.isNullOrBlank() || options == null) {
-            _jobsMessage.value =
-                "This job was printed before PocketPrint kept enough to repeat it."
+            _jobsMessage.value = getApplication<android.app.Application>()
+                .getString(R.string.reprint_too_old)
             return@launch
         }
 
         // A cached copy can be evicted by Android, or cleared from Settings.
         val local = runCatching { Uri.parse(uri).path?.let(::File) }.getOrNull()
         if (uri.startsWith("file://") && local?.exists() != true) {
-            _jobsMessage.value =
-                "The copy of ${record.documentName} has been cleared from the cache, " +
-                    "so it has to be chosen again."
+            _jobsMessage.value = getApplication<android.app.Application>()
+                .getString(R.string.reprint_document_gone, record.documentName)
             return@launch
         }
 
@@ -530,7 +538,9 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
             ),
             options = options,
         )
-        _jobsMessage.value = "Printing ${record.documentName} again on ${printer.displayName}."
+        _jobsMessage.value = getApplication<android.app.Application>().getString(
+            R.string.reprint_started, record.documentName, printer.displayName,
+        )
     }
 
     fun clearLabelStatus() { _labelStatus.value = null }
@@ -612,10 +622,8 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
                     loading = false,
                     bitmap = bitmap,
                     message = if (bitmap == null) {
-                        "${printer.displayName} takes the document as it is, so there " +
-                            "is nothing here that the document itself does not already " +
-                            "show. Preview is for printers that reduce a page to one " +
-                            "bit per dot."
+                        getApplication<android.app.Application>()
+                            .getString(R.string.preview_not_applicable, printer.displayName)
                     } else {
                         null
                     },
@@ -625,7 +633,9 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
                 PreviewState(
                     printerName = printer.displayName,
                     loading = false,
-                    message = failure.message ?: "The page could not be rendered.",
+                    message = failure.message
+                        ?: getApplication<android.app.Application>()
+                            .getString(R.string.preview_failed),
                 )
             },
         )

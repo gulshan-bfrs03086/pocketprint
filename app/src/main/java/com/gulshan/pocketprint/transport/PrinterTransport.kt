@@ -47,4 +47,19 @@ interface PrinterTransport : Closeable {
     suspend fun readAvailable(timeoutMs: Long = 400): ByteArray = ByteArray(0)
 }
 
+/**
+ * A transport failure, described in the transport's own terms.
+ *
+ * These messages are deliberately not translated, and that is a boundary rather
+ * than an omission. What a transport knows is technical - a socket that closed,
+ * an endpoint that would not open - and that text is what ends up in a printer
+ * report pasted into an English issue, where it has to stay readable to whoever
+ * is reading the report.
+ *
+ * Turning it into something a person can act on is JobError's job, and that is
+ * translated. So a recognised failure reaches the user as a localised sentence
+ * with the technical message underneath, and an unrecognised one reaches them
+ * as the technical message alone rather than as a vaguer sentence that happens
+ * to be in their language.
+ */
 class TransportException(message: String, cause: Throwable? = null) : Exception(message, cause)

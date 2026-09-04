@@ -1,5 +1,8 @@
 package com.gulshan.pocketprint.print
 
+import androidx.annotation.StringRes
+import com.gulshan.pocketprint.R
+
 /**
  * Turns what the transport said into something the user can do something about.
  *
@@ -15,53 +18,47 @@ package com.gulshan.pocketprint.print
  */
 object JobError {
 
-    fun explain(raw: String?): String? {
+    /**
+     * The resource id of an explanation, or null if there is nothing honest to
+     * say. Returning an id rather than a string keeps this callable from a
+     * service and from a composable alike, and makes the mapping - which is the
+     * part worth being sure about - testable without a Context.
+     */
+    @StringRes
+    fun explain(raw: String?): Int? {
         val message = raw?.lowercase() ?: return null
         return when {
             "socket might closed" in message ||
                 "broken pipe" in message ||
-                "connection reset" in message ->
-                "The printer closed the connection part way through. Thermal " +
-                    "printers sleep aggressively - wake it and try again."
+                "connection reset" in message -> R.string.job_error_asleep
 
-            "stopped accepting data" in message ->
-                "The printer stopped taking bytes without closing the connection, " +
-                    "which usually means it is out of paper, its cover is open, or " +
-                    "it is waiting at a fault it has not reported."
+            "stopped accepting data" in message -> R.string.job_error_stalled
 
-            "bluetooth is turned off" in message ->
-                "Turn Bluetooth on and try again."
+            "bluetooth is turned off" in message -> R.string.job_error_bluetooth_off
 
             "permission" in message && "bluetooth" in message ->
-                "PocketPrint needs the Bluetooth permission to reach this printer. " +
-                    "Grant it in Android's app settings."
+                R.string.job_error_bluetooth_permission
 
             "econnrefused" in message || "connection refused" in message ->
-                "The printer answered but is not listening on that port. Check the " +
-                    "port number - raw printing is usually 9100, IPP is 631."
+                R.string.job_error_refused
 
             "etimedout" in message || "timed out" in message || "timeout" in message ->
-                "The printer did not answer. Check it is switched on, and that it is " +
-                    "in range or on the same network."
+                R.string.job_error_timeout
 
             "ehostunreach" in message || "enetunreach" in message ->
-                "That address cannot be reached from this network. A printer on a " +
-                    "different subnet, or a phone on mobile data rather than Wi-Fi, " +
-                    "will both look like this."
+                R.string.job_error_unreachable
 
             "device or resource busy" in message || "resource busy" in message ->
-                "Something else is already connected to this printer. These printers " +
-                    "accept one connection at a time."
+                R.string.job_error_busy
 
             "not bonded" in message || "authentication" in message ->
-                "Pairing failed. Remove the printer in Android's Bluetooth settings " +
-                    "and pair it again - the PIN is usually 0000."
+                R.string.job_error_pairing
 
             "no printer" in message || "printer not found" in message ->
-                "That printer is no longer saved. Set it up again."
+                R.string.job_error_no_printer
 
             "out of paper" in message || "media" in message && "empty" in message ->
-                "The printer reports it is out of media."
+                R.string.job_error_out_of_media
 
             else -> null
         }

@@ -2,6 +2,7 @@ package com.gulshan.pocketprint.print
 
 import android.content.Context
 import android.util.Log
+import com.gulshan.pocketprint.R
 import com.gulshan.pocketprint.ipp.IppCapabilityMapper
 import com.gulshan.pocketprint.ipp.IppClient
 import com.gulshan.pocketprint.ipp.IppJobState
@@ -71,19 +72,14 @@ class PrintEngine(
      * in the system. Saying so is the difference between a user who checks the
      * paper and a user who spends an evening on the command language.
      */
-    private fun unconfirmedReason(address: PrinterAddress): String = when (address) {
-        is PrinterAddress.Bluetooth ->
-            "Bluetooth printing carries no acknowledgement. The printer accepted " +
-                "the bytes; only the label tells you what it did with them."
-        is PrinterAddress.Usb ->
-            "USB printing carries no acknowledgement. The printer accepted the " +
-                "bytes; only the page tells you what it did with them."
-        is PrinterAddress.Raw ->
-            "Raw port 9100 carries no acknowledgement. The printer accepted the " +
-                "bytes; only the page tells you what it did with them."
-        is PrinterAddress.Ipp ->
-            "The printer accepted the job but never said what became of it."
-    }
+    private fun unconfirmedReason(address: PrinterAddress): String = context.getString(
+        when (address) {
+            is PrinterAddress.Bluetooth -> R.string.unconfirmed_bluetooth
+            is PrinterAddress.Usb -> R.string.unconfirmed_usb
+            is PrinterAddress.Raw -> R.string.unconfirmed_raw
+            is PrinterAddress.Ipp -> R.string.unconfirmed_ipp
+        },
+    )
 
     /**
      * Follows an IPP job to a terminal state, which is the one case where the
@@ -105,8 +101,7 @@ class PrintEngine(
         if (jobId == null) {
             return PrintResult.Sent(
                 bytesSent,
-                reason = "The printer accepted the job but gave it no id, so its " +
-                    "progress cannot be followed.",
+                reason = context.getString(R.string.ipp_no_job_id),
             )
         }
 
@@ -124,23 +119,22 @@ class PrintEngine(
                     Log.w(TAG, "job $jobId poll failed", it)
                     return PrintResult.Sent(
                         bytesSent, jobId,
-                        reason = "The printer stopped answering questions about job " +
-                            "$jobId, so what became of it is unknown.",
+                        reason = context.getString(R.string.ipp_stopped_answering, jobId),
                     )
                 }
 
             if (response.statusCode == IppStatus.CLIENT_ERROR_NOT_FOUND) {
                 return PrintResult.Sent(
                     bytesSent, jobId,
-                    reason = "The printer no longer has a record of job $jobId. That " +
-                        "usually means it finished, but the printer never said so.",
+                    reason = context.getString(R.string.ipp_job_forgotten, jobId),
                 )
             }
             if (!response.isSuccess) {
                 return PrintResult.Sent(
                     bytesSent, jobId,
-                    reason = "The printer refused to report on job $jobId " +
-                        "(${response.statusText}).",
+                    reason = context.getString(
+                        R.string.ipp_refused_to_report, jobId, response.statusText,
+                    ),
                 )
             }
 
@@ -152,24 +146,34 @@ class PrintEngine(
             when (state) {
                 IppJobState.COMPLETED -> return PrintResult.Completed(bytesSent, jobId)
                 IppJobState.ABORTED, IppJobState.CANCELED -> return PrintResult.Failure(
-                    "The printer ${state.label} the job" +
-                        reasons.takeIf { it.isNotEmpty() }
-                            ?.joinToString(prefix = ": ") { it.replace('-', ' ') }
-                            .orEmpty(),
+                    if (reasons.isEmpty()) {
+                        context.getString(R.string.ipp_job_ended, state.label)
+                    } else {
+                        context.getString(
+                            R.string.ipp_job_ended_because,
+                            state.label,
+                            reasons.joinToString { it.replace('-', ' ') },
+                        )
+                    },
                 )
                 else -> Unit
             }
         }
 
         val waited = if (windowMs >= 60_000) {
-            "${windowMs / 60_000} minutes"
+            val minutes = (windowMs / 60_000).toInt()
+            context.resources.getQuantityString(R.plurals.duration_minutes, minutes, minutes)
         } else {
-            "${windowMs / 1_000} seconds"
+            val seconds = (windowMs / 1_000).toInt()
+            context.resources.getQuantityString(R.plurals.duration_seconds, seconds, seconds)
         }
         return PrintResult.Sent(
             bytesSent, jobId,
-            reason = "The printer was still ${lastSeen?.label ?: "working on the job"} " +
-                "after $waited, so it was left to get on with it.",
+            reason = context.getString(
+                R.string.ipp_still_working,
+                lastSeen?.label ?: context.getString(R.string.ipp_working_on_it),
+                waited,
+            ),
         )
     }
 
@@ -302,7 +306,9 @@ class PrintEngine(
                         onStatus = listener.onStatus,
                     )
                 } else {
-                    PrintResult.Failure("Printer rejected job: ${response.statusText}")
+                    PrintResult.Failure(
+                        context.getString(R.string.printer_rejected_job, response.statusText),
+                    )
                 }
             } else {
                 onPrinter(printer, listener) {
@@ -340,7 +346,9 @@ class PrintEngine(
         printer = printer,
         onWaiting = {
             listener.onWaitingForPrinter(true)
-            listener.onStatus("Waiting for another job on ${printer.displayName} to finish")
+            listener.onStatus(
+                context.getString(R.string.queue_waiting, printer.displayName),
+            )
         },
         onResumed = { listener.onWaitingForPrinter(false) },
         block = delivery,
@@ -387,9 +395,17 @@ class PrintEngine(
                 val unsupported = response.unsupported()
                     .joinToString { it.name }
                     .takeIf { it.isNotBlank() }
-                    ?.let { " (unsupported: $it)" }
-                    .orEmpty()
-                PrintResult.Failure("Printer rejected job: ${response.statusText}$unsupported")
+                PrintResult.Failure(
+                    if (unsupported == null) {
+                        context.getString(R.string.printer_rejected_job, response.statusText)
+                    } else {
+                        context.getString(
+                            R.string.printer_rejected_unsupported,
+                            response.statusText,
+                            unsupported,
+                        )
+                    },
+                )
             }
         } else {
             // Here the lock is the whole job. There is one RFCOMM slot, one USB

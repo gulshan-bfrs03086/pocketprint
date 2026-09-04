@@ -67,10 +67,7 @@ class ShareTargetActivity : ComponentActivity() {
                 // say so rather than silently dropping the rest.
                 val uris = intent.parcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM)
                 if ((uris?.size ?: 0) > 1) {
-                    toast(
-                        "PocketPrint prints one document at a time; using the first of " +
-                            "${uris?.size} shared files.",
-                    )
+                    toast(getString(R.string.share_multiple, uris?.size ?: 0))
                 }
                 uris?.firstOrNull()?.let { accept(it, viewModel) }
             }
@@ -93,19 +90,23 @@ class ShareTargetActivity : ComponentActivity() {
             // A file:// URI is a caller asking us to read a path of its
             // choosing with our own identity. Sharing apps have not been
             // allowed to send one since API 24 in any case.
-            toast("PocketPrint accepts shared files, not raw file paths.")
+            toast(getString(R.string.share_not_a_file))
             return
         }
 
         val described = try {
             Spool.describe(this, uri)
         } catch (failure: Exception) {
-            toast("That file could not be read: ${failure.message}")
+            toast(getString(R.string.share_unreadable, failure.message.orEmpty()))
             return
         }
 
         if (!RenderPipeline.canRender(described.mimeType, described.extension)) {
-            toast("PocketPrint can't print ${described.displayName} (${described.mimeType}).")
+            toast(
+                getString(
+                    R.string.share_cannot_print, described.displayName, described.mimeType,
+                ),
+            )
             return
         }
 
@@ -114,15 +115,18 @@ class ShareTargetActivity : ComponentActivity() {
             Spool.copyToCache(this, uri, suffix)
         } catch (tooBig: DocumentTooLarge) {
             toast(
-                "${described.displayName} is over the " +
-                    "${Spool.MAX_DOCUMENT_BYTES / (1024 * 1024)} MB limit for a print job.",
+                getString(
+                    R.string.share_too_large,
+                    described.displayName,
+                    (Spool.MAX_DOCUMENT_BYTES / (1024 * 1024)).toInt(),
+                ),
             )
             return
         } catch (timeout: TimeoutCancellationException) {
-            toast("${described.displayName} took too long to read; nothing was printed.")
+            toast(getString(R.string.share_too_slow, described.displayName))
             return
         } catch (failure: Exception) {
-            toast("That file could not be read: ${failure.message}")
+            toast(getString(R.string.share_unreadable, failure.message.orEmpty()))
             return
         }
 
@@ -145,10 +149,7 @@ class ShareTargetActivity : ComponentActivity() {
         viewModel: PrintersViewModel,
     ) {
         if (text.length > MAX_SHARED_TEXT_CHARS) {
-            toast(
-                "That text is very long; printing the first " +
-                    "$MAX_SHARED_TEXT_CHARS characters.",
-            )
+            toast(getString(R.string.share_text_truncated, MAX_SHARED_TEXT_CHARS))
         }
         viewModel.setSharedText(text.take(MAX_SHARED_TEXT_CHARS), subject)
     }

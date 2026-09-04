@@ -1,9 +1,9 @@
 package com.gulshan.pocketprint
 
+import com.gulshan.pocketprint.R
 import com.gulshan.pocketprint.print.JobError
-import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -18,38 +18,41 @@ class JobErrorTest {
     fun `the message a sleeping bluetooth printer actually produces`() {
         // The literal string the Android Bluetooth stack returns, which is what
         // this app has been showing people.
-        val advice = JobError.explain(
-            "read failed, socket might closed or timeout, read ret: -1",
+        assertEquals(
+            R.string.job_error_asleep,
+            JobError.explain("read failed, socket might closed or timeout, read ret: -1"),
         )
-        assertNotNull(advice)
-        assertTrue(advice!!.contains("sleep"))
     }
 
     @Test
     fun `a stalled write is explained as the printer, not as the socket`() {
-        val advice = JobError.explain("The printer stopped accepting data for 60 seconds")
-        assertNotNull(advice)
-        assertTrue(advice!!.contains("out of paper"))
+        assertEquals(
+            R.string.job_error_stalled,
+            JobError.explain("The printer stopped accepting data for 60 seconds"),
+        )
     }
 
     @Test
     fun `network failures point at the thing that is actually wrong`() {
-        assertTrue(JobError.explain("failed to connect: ECONNREFUSED")!!.contains("9100"))
-        assertTrue(JobError.explain("connect timed out")!!.contains("switched on"))
-        assertTrue(JobError.explain("connect failed: EHOSTUNREACH")!!.contains("subnet"))
+        assertEquals(R.string.job_error_refused, JobError.explain("failed to connect: ECONNREFUSED"))
+        assertEquals(R.string.job_error_timeout, JobError.explain("connect timed out"))
+        assertEquals(
+            R.string.job_error_unreachable,
+            JobError.explain("connect failed: EHOSTUNREACH"),
+        )
     }
 
     @Test
     fun `a printer already in use says so`() {
-        assertTrue(
-            JobError.explain("bind failed: Device or resource busy")!!
-                .contains("one connection at a time"),
+        assertEquals(
+            R.string.job_error_busy,
+            JobError.explain("bind failed: Device or resource busy"),
         )
     }
 
     @Test
     fun `pairing failures name the PIN, because it is always 0000`() {
-        assertTrue(JobError.explain("Authentication failure")!!.contains("0000"))
+        assertEquals(R.string.job_error_pairing, JobError.explain("Authentication failure"))
     }
 
     @Test

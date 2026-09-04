@@ -211,6 +211,18 @@ Versions are built on `release/X.Y` branches and reach `main` by merge, so `main
 latest — see [docs/RELEASING.md](docs/RELEASING.md). The version is declared once, in
 `app/build.gradle.kts`, and both flavours' version codes derive from it.
 
+## Translating it
+
+Every string a user reads is in `app/src/main/res/values/strings.xml`, with positional format
+arguments so a translation can reorder them. Adding a language is a `values-xx/strings.xml` and
+one line in [`locales_config.xml`](app/src/main/res/xml/locales_config.xml), after which Android
+lists the app under **Settings → Apps → App languages**.
+
+Two things are deliberately left in English. Protocol vocabulary — TSPL, ZPL, ESC/POS, and IPP's
+own `job-state` keywords — because those are the protocols' names for themselves. And the
+technical text a transport produces when it fails, because that is what gets pasted into a bug
+report; what a person can *act* on is a separate, translated sentence shown above it.
+
 ## Layout
 
 ```

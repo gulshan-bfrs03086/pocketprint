@@ -129,7 +129,14 @@ class PrintForegroundService : Service() {
 
         // Must happen within ~5 s of startForegroundService, before any parsing
         // that might bail out.
-        startForeground(NOTIFICATION_ID, buildNotification("Print job", "Preparing", 0))
+        startForeground(
+            NOTIFICATION_ID,
+            buildNotification(
+                getString(R.string.notification_job),
+                getString(R.string.notification_preparing),
+                0,
+            ),
+        )
 
         val printerId = intent?.getStringExtra(EXTRA_PRINTER_ID)
         val documentRaw = intent?.getStringExtra(EXTRA_DOCUMENT)
@@ -202,15 +209,21 @@ class PrintForegroundService : Service() {
         if (printer == null) {
             jobs.upsert(
                 PrintJobRecord(
-                    jobId, printerId, "Unknown printer", document.displayName,
+                    jobId, printerId, getString(R.string.notification_unknown_printer),
+                    document.displayName,
                     JobState.FAILED, startedAt, System.currentTimeMillis(),
-                    error = "Printer not found",
+                    error = getString(R.string.notification_printer_not_found),
                     documentUri = document.uri,
                     documentMimeType = document.mimeType,
                     options = options,
                 ),
             )
-            notify(document.displayName, "Printer not found", 0, ongoing = false)
+            notify(
+                document.displayName,
+                getString(R.string.notification_printer_not_found),
+                0,
+                ongoing = false,
+            )
             return
         }
 
@@ -245,7 +258,11 @@ class PrintForegroundService : Service() {
         // off, most obviously - and this is the notification that carries the
         // Cancel action. Waiting for onProgress would leave exactly the case
         // that most needs cancelling without a way to cancel it.
-        notify(document.displayName, "Connecting to ${printer.displayName}", 0)
+        notify(
+            document.displayName,
+            getString(R.string.notification_connecting, printer.displayName),
+            0,
+        )
 
         val result = try {
             ServiceLocator.printEngine(applicationContext).print(
@@ -257,7 +274,7 @@ class PrintForegroundService : Service() {
                         val percent = if (total > 0) (sent * 100 / total).toInt() else 0
                         notifyProgress(
                             document.displayName,
-                            "Sending to ${printer.displayName}",
+                            getString(R.string.notification_sending, printer.displayName),
                             percent,
                         )
                     },
@@ -265,7 +282,15 @@ class PrintForegroundService : Service() {
                     // be long. "processing - media empty error" beats a progress
                     // bar sitting at 100% for two minutes.
                     onStatus = { status ->
-                        notify(document.displayName, "${printer.displayName}: $status", 100)
+                        notify(
+                            document.displayName,
+                            getString(
+                                R.string.notification_printer_status,
+                                printer.displayName,
+                                status,
+                            ),
+                            100,
+                        )
                     },
                 ),
             )
@@ -278,7 +303,7 @@ class PrintForegroundService : Service() {
                     record(
                         JobState.CANCELLED,
                         finishedAt = System.currentTimeMillis(),
-                        error = "Cancelled before the job finished",
+                        error = getString(R.string.job_cancelled),
                     ),
                 )
             }
@@ -302,8 +327,10 @@ class PrintForegroundService : Service() {
         )
 
         val summary = when (result) {
-            is PrintResult.Completed -> "${printer.displayName} printed it"
-            is PrintResult.Sent -> "Sent to ${printer.displayName} - not confirmed"
+            is PrintResult.Completed ->
+                getString(R.string.notification_printed, printer.displayName)
+            is PrintResult.Sent ->
+                getString(R.string.notification_sent_unconfirmed, printer.displayName)
             is PrintResult.Failure -> result.message
         }
         // The reason a job cannot be confirmed is the actionable part, so it
@@ -329,8 +356,8 @@ class PrintForegroundService : Service() {
     private fun windDownAfterSystemTimeout() {
         scope.coroutineContext.cancelChildren()
         notify(
-            "Print job stopped",
-            "Android stopped this job because it ran too long.",
+            getString(R.string.notification_stopped_title),
+            getString(R.string.notification_stopped_body),
             0,
             ongoing = false,
         )
@@ -381,7 +408,7 @@ class PrintForegroundService : Service() {
                 if (ongoing && cancellable != null) {
                     addAction(
                         android.R.drawable.ic_menu_close_clear_cancel,
-                        "Cancel",
+                        getString(R.string.action_cancel),
                         PendingIntent.getService(
                             this@PrintForegroundService,
                             cancellable.hashCode(),
