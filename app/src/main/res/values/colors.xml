@@ -1,3 +1,11 @@
 <resources>
     <color name="ic_launcher_background">#0B4F6C</color>
+
+    <!--
+      What the window is painted before Compose draws anything.
+
+      Without a night variant the first frame of every launch in dark mode is a
+      white rectangle. It lasts a moment and looks like a fault.
+    -->
+    <color name="window_background">#FFFBFE</color>
 </resources>

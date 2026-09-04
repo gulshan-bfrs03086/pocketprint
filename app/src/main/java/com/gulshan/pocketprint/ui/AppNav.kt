@@ -2,6 +2,7 @@ package com.gulshan.pocketprint.ui
 
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.History
@@ -82,7 +83,11 @@ fun AppNav(viewModel: PrintersViewModel = viewModel()) {
         Row(
             Modifier
                 .fillMaxSize()
-                .padding(padding),
+                .padding(padding)
+                // Edge-to-edge means the keyboard covers the window rather than
+                // resizing it, so a field near the bottom of a form ends up
+                // underneath what is being typed into it.
+                .imePadding(),
         ) {
             if (wide) {
                 NavigationRail {

@@ -1,3 +1,23 @@
 <resources>
-    <style name="Theme.PocketPrint" parent="android:Theme.Material.Light.NoActionBar" />
+    <style name="Theme.PocketPrint" parent="android:Theme.Material.Light.NoActionBar">
+        <!--
+          The interface is entirely Compose and brings its own colours, so the
+          platform theme is only ever seen in the moment before Compose draws.
+          That moment is exactly where a dark-mode launch flashes white, which
+          this fixes and nothing in Compose can.
+        -->
+        <item name="android:windowBackground">@color/window_background</item>
+        <item name="android:colorBackground">@color/window_background</item>
+    </style>
+
+    <!--
+      The launch theme. Android 12 shows a splash whether an app asks for one or
+      not; without this it is a default constructed from the icon, over a
+      background that is not the app's.
+    -->
+    <style name="Theme.PocketPrint.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/ic_launcher_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
+        <item name="postSplashScreenTheme">@style/Theme.PocketPrint</item>
+    </style>
 </resources>

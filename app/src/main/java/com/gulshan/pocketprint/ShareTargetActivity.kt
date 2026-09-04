@@ -8,6 +8,7 @@ import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.gulshan.pocketprint.render.DocumentTooLarge
@@ -33,6 +34,9 @@ class ShareTargetActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // The share target drew under the status bar's colour rather than
+        // through it, so arriving here from another app was a visible seam.
+        enableEdgeToEdge()
 
         setContent {
             PocketPrintTheme {

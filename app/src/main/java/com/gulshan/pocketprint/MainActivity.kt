@@ -4,6 +4,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -29,6 +30,12 @@ import com.gulshan.pocketprint.ui.vm.PrintersViewModel
 class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Before super.onCreate, which is where the launch theme is swapped for
+        // the app one. Android 12 shows a splash whether an app asks for one or
+        // not; this makes it the app's rather than a default built from the
+        // icon, and backports the same thing to the versions the legacy build
+        // still runs on.
+        installSplashScreen()
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
