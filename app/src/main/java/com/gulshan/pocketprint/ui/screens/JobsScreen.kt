@@ -22,6 +22,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.gulshan.pocketprint.model.JobState
+import com.gulshan.pocketprint.print.JobError
 import com.gulshan.pocketprint.ui.components.InfoBanner
 import com.gulshan.pocketprint.ui.vm.PrintersViewModel
 import java.text.SimpleDateFormat
@@ -33,6 +34,7 @@ private val UNFINISHED = setOf(JobState.QUEUED, JobState.RENDERING, JobState.SEN
 @Composable
 fun JobsScreen(viewModel: PrintersViewModel) {
     val jobs by viewModel.jobs.collectAsStateWithLifecycle()
+    val message by viewModel.jobsMessage.collectAsStateWithLifecycle()
     val formatter = remember { SimpleDateFormat("d MMM, HH:mm", Locale.getDefault()) }
 
     LazyColumn(
@@ -52,6 +54,15 @@ fun JobsScreen(viewModel: PrintersViewModel) {
                 Text("History", style = MaterialTheme.typography.titleMedium)
                 if (jobs.isNotEmpty()) {
                     TextButton(onClick = { viewModel.clearJobs() }) { Text("Clear") }
+                }
+            }
+        }
+
+        message?.let { text ->
+            item {
+                Column {
+                    InfoBanner(text)
+                    TextButton(onClick = { viewModel.clearJobsMessage() }) { Text("Dismiss") }
                 }
             }
         }
@@ -82,6 +93,7 @@ fun JobsScreen(viewModel: PrintersViewModel) {
                             JobState.COMPLETED -> "Printed (${job.bytesSent / 1024} KB)"
                             JobState.SENT -> "Sent (${job.bytesSent / 1024} KB) - not confirmed"
                             JobState.FAILED -> job.error ?: "Failed"
+
                             else -> job.state.name.lowercase()
                                 .replaceFirstChar { it.uppercase() }
                         },
@@ -94,6 +106,20 @@ fun JobsScreen(viewModel: PrintersViewModel) {
                         },
                         modifier = Modifier.padding(top = 4.dp),
                     )
+                    // What the transport said is kept as it is - it is what
+                    // makes a printer report useful - but what to do about it
+                    // goes first, because "read failed, socket might closed" is
+                    // an accurate description of a file descriptor and no help
+                    // at all to somebody holding a printer.
+                    JobError.explain(job.error)?.let { advice ->
+                        Text(
+                            advice,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                    }
+
                     job.note?.let { note ->
                         Text(
                             note,
@@ -112,6 +138,13 @@ fun JobsScreen(viewModel: PrintersViewModel) {
                             modifier = Modifier.padding(top = 4.dp),
                         ) {
                             Text("Cancel")
+                        }
+                    } else if (job.replayable) {
+                        TextButton(
+                            onClick = { viewModel.reprint(job) },
+                            modifier = Modifier.padding(top = 4.dp),
+                        ) {
+                            Text("Print again")
                         }
                     }
                 }

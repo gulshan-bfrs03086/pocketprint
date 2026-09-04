@@ -205,18 +205,40 @@ class PrintForegroundService : Service() {
                     jobId, printerId, "Unknown printer", document.displayName,
                     JobState.FAILED, startedAt, System.currentTimeMillis(),
                     error = "Printer not found",
+                    documentUri = document.uri,
+                    documentMimeType = document.mimeType,
+                    options = options,
                 ),
             )
             notify(document.displayName, "Printer not found", 0, ongoing = false)
             return
         }
 
-        jobs.upsert(
-            PrintJobRecord(
-                jobId, printer.id, printer.displayName, document.displayName,
-                JobState.SENDING, startedAt,
-            ),
+        // Everything needed to run this again goes in from the start, so a job
+        // that fails half way is as repeatable as one that finishes.
+        fun record(
+            state: JobState,
+            finishedAt: Long? = null,
+            bytesSent: Long = 0,
+            error: String? = null,
+            note: String? = null,
+        ) = PrintJobRecord(
+            id = jobId,
+            printerId = printer.id,
+            printerName = printer.displayName,
+            documentName = document.displayName,
+            state = state,
+            createdAtEpochMs = startedAt,
+            finishedAtEpochMs = finishedAt,
+            bytesSent = bytesSent,
+            error = error,
+            note = note,
+            documentUri = document.uri,
+            documentMimeType = document.mimeType,
+            options = options,
         )
+
+        jobs.upsert(record(JobState.SENDING))
 
         // Post before the first byte moves, because opening the connection is
         // itself something that can hang - a Bluetooth printer that is switched
@@ -253,9 +275,9 @@ class PrintForegroundService : Service() {
             // cancelled at its first suspension point.
             withContext(NonCancellable) {
                 jobs.upsert(
-                    PrintJobRecord(
-                        jobId, printer.id, printer.displayName, document.displayName,
-                        JobState.CANCELLED, startedAt, System.currentTimeMillis(),
+                    record(
+                        JobState.CANCELLED,
+                        finishedAt = System.currentTimeMillis(),
                         error = "Cancelled before the job finished",
                     ),
                 )
@@ -263,27 +285,21 @@ class PrintForegroundService : Service() {
             throw cancel
         }
 
-        val record = when (result) {
-            // Only this branch is allowed to say COMPLETED, and only an IPP
-            // printer reporting job-state=completed can reach it.
-            is PrintResult.Completed -> PrintJobRecord(
-                jobId, printer.id, printer.displayName, document.displayName,
-                JobState.COMPLETED, startedAt, System.currentTimeMillis(),
-                bytesSent = result.bytesSent,
-            )
-            is PrintResult.Sent -> PrintJobRecord(
-                jobId, printer.id, printer.displayName, document.displayName,
-                JobState.SENT, startedAt, System.currentTimeMillis(),
-                bytesSent = result.bytesSent,
-                note = result.reason,
-            )
-            is PrintResult.Failure -> PrintJobRecord(
-                jobId, printer.id, printer.displayName, document.displayName,
-                JobState.FAILED, startedAt, System.currentTimeMillis(),
-                error = result.message,
-            )
-        }
-        jobs.upsert(record)
+        val finishedAt = System.currentTimeMillis()
+        jobs.upsert(
+            when (result) {
+                // Only this branch is allowed to say COMPLETED, and only an IPP
+                // printer reporting job-state=completed can reach it.
+                is PrintResult.Completed ->
+                    record(JobState.COMPLETED, finishedAt, bytesSent = result.bytesSent)
+                is PrintResult.Sent -> record(
+                    JobState.SENT, finishedAt,
+                    bytesSent = result.bytesSent, note = result.reason,
+                )
+                is PrintResult.Failure ->
+                    record(JobState.FAILED, finishedAt, error = result.message)
+            },
+        )
 
         val summary = when (result) {
             is PrintResult.Completed -> "${printer.displayName} printed it"

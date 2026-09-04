@@ -77,7 +77,24 @@ data class PrintJobRecord(
     val error: String? = null,
     /** Why a [JobState.SENT] job could not be confirmed. Never set on a failure. */
     val note: String? = null,
-)
+
+    /**
+     * Enough to run the job again.
+     *
+     * "The printer was asleep, the job failed, turn it on, print it again" is
+     * the commonest sequence there is, and without these it meant finding the
+     * file again and re-picking every option. The uri points into this app's
+     * own cache rather than at the original document, because a share grant
+     * dies with the activity that received it and a picked document's grant
+     * dies with the process.
+     */
+    val documentUri: String? = null,
+    val documentMimeType: String? = null,
+    val options: PrintOptions? = null,
+) {
+    /** Whether this job carries enough to be run again. */
+    val replayable: Boolean get() = !documentUri.isNullOrBlank() && options != null
+}
 
 /**
  * Outcome of handing bytes to a printer.

@@ -21,6 +21,7 @@ import com.gulshan.pocketprint.model.Printer
 import com.gulshan.pocketprint.model.PrinterAddress
 import com.gulshan.pocketprint.model.PrinterCapabilities
 import com.gulshan.pocketprint.model.SourceDocument
+import com.gulshan.pocketprint.print.Diagnostics
 import com.gulshan.pocketprint.print.JobListener
 import com.gulshan.pocketprint.print.PrintForegroundService
 import com.gulshan.pocketprint.print.PrinterAutoSetup
@@ -40,6 +41,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import java.io.File
 
 /**
  * A rendered preview, or the reason there is not one.
@@ -92,6 +94,10 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
     val options: StateFlow<PrintOptions> = _options.asStateFlow()
 
     private var scanJob: Job? = null
+
+    /** One line of feedback for the history screen. */
+    private val _jobsMessage = MutableStateFlow<String?>(null)
+    val jobsMessage: StateFlow<String?> = _jobsMessage.asStateFlow()
 
     private val _preview = MutableStateFlow<PreviewState?>(null)
     val preview: StateFlow<PreviewState?> = _preview.asStateFlow()
@@ -298,8 +304,29 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---- documents and printing ---------------------------------------------
 
+    /**
+     * Takes a document the user picked, and takes a copy of it.
+     *
+     * The copy is not an optimisation. A read grant from the file picker lives
+     * only as long as this process, so a job reprinted tomorrow from history
+     * would find a URI it is no longer allowed to open - and the copy is
+     * bounded in size and time, so it costs nothing surprising.
+     */
     fun selectDocument(uri: Uri) = viewModelScope.launch {
-        _selectedDocument.value = Spool.describe(getApplication(), uri)
+        val described = Spool.describe(getApplication(), uri)
+        _selectedDocument.value = runCatching {
+            val suffix = described.extension.takeIf { it.isNotBlank() }?.let { ".$it" } ?: ".bin"
+            val local = Spool.copyToCache(getApplication(), uri, suffix)
+            described.copy(uri = Uri.fromFile(local).toString(), sizeBytes = local.length())
+        }.getOrElse { failure ->
+            // Still printable this session against the original grant; just not
+            // reprintable once the grant is gone.
+            Diagnostics.record(
+                "Spool",
+                "could not copy ${described.displayName}: ${failure.message}",
+            )
+            described
+        }
     }
 
     fun setDocument(document: SourceDocument?) { _selectedDocument.value = document }
@@ -436,6 +463,55 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
         printRawLabel(printer, bytes, "Calibrate")
+    }
+
+    fun clearJobsMessage() { _jobsMessage.value = null }
+
+    /**
+     * Runs a finished job again, on the same printer with the same options.
+     *
+     * "The printer was asleep, the job failed, switch it on, print it again" is
+     * the commonest sequence there is with these printers, and it used to mean
+     * finding the file again and re-picking every option - by which point the
+     * options are a guess at what they were the first time.
+     */
+    fun reprint(record: PrintJobRecord) = viewModelScope.launch {
+        val printer = printerRepo.find(record.printerId)
+        if (printer == null) {
+            _jobsMessage.value =
+                "${record.printerName} is no longer saved, so this job cannot be repeated."
+            return@launch
+        }
+
+        val uri = record.documentUri
+        val options = record.options
+        if (uri.isNullOrBlank() || options == null) {
+            _jobsMessage.value =
+                "This job was printed before PocketPrint kept enough to repeat it."
+            return@launch
+        }
+
+        // A cached copy can be evicted by Android, or cleared from Settings.
+        val local = runCatching { Uri.parse(uri).path?.let(::File) }.getOrNull()
+        if (uri.startsWith("file://") && local?.exists() != true) {
+            _jobsMessage.value =
+                "The copy of ${record.documentName} has been cleared from the cache, " +
+                    "so it has to be chosen again."
+            return@launch
+        }
+
+        PrintForegroundService.start(
+            context = getApplication(),
+            printerId = printer.id,
+            document = SourceDocument(
+                uri = uri,
+                displayName = record.documentName,
+                mimeType = record.documentMimeType ?: "application/octet-stream",
+                sizeBytes = local?.length() ?: -1L,
+            ),
+            options = options,
+        )
+        _jobsMessage.value = "Printing ${record.documentName} again on ${printer.displayName}."
     }
 
     fun clearLabelStatus() { _labelStatus.value = null }
