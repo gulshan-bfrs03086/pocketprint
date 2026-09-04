@@ -102,10 +102,19 @@ android {
         /**
          * Android 7.0 and up, for older and rugged hardware.
          *
-         * Carries the pre-API-31 Bluetooth permissions, which drag in
-         * ACCESS_FINE_LOCATION, which in turn forces the location hardware
-         * features to be declared optional or the package will not install on a
-         * device without GPS.
+         * All it adds over modern is BLUETOOTH capped at API 30 - the single
+         * permission a Bluetooth connection needed before API 31 split it into
+         * BLUETOOTH_CONNECT and BLUETOOTH_SCAN. Install-time, prompts for
+         * nothing.
+         *
+         * It used to carry ACCESS_FINE_LOCATION as well, because scanning below
+         * API 31 required it, and aapt turned that into an implied
+         * android.hardware.location feature - which is how this app once became
+         * uninstallable on a rugged terminal with no GPS, reporting nothing
+         * more useful than "Can't install the app". Scanning is the system
+         * picker's job now, so the permission is gone and neither flavour asks
+         * for location. The optional uses-feature declarations in the legacy
+         * manifest stay behind as a guard against that returning unnoticed.
          */
         create("legacy") {
             dimension = "reach"
@@ -117,10 +126,15 @@ android {
         /**
          * Android 12 and up.
          *
-         * Asks for no location permission at all: BLUETOOTH_SCAN with
-         * neverForLocation covers discovery from API 31. Fewer permission
-         * prompts, no location access, and it cannot hit the required-feature
-         * install failure by construction.
+         * Identical to legacy except that it does not declare the pre-API-31
+         * BLUETOOTH permission, which the platform stops honouring at API 31
+         * regardless.
+         *
+         * That really is the whole difference, measured on the published v1.1.0
+         * APKs: ten permissions against nine, and the tenth is the one above.
+         * Both once differed on location access too, and no longer do. Whether
+         * two builds still earn their keep for one install-time permission is
+         * an open question rather than a settled design - see gulshan-hll2.
          */
         create("modern") {
             dimension = "reach"
