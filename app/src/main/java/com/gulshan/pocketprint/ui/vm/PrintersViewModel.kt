@@ -371,6 +371,18 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
         )
     }
 
+    /**
+     * Asks the print service to stop a job that is still running.
+     *
+     * Only the service's own jobs can be stopped this way, which is every job
+     * that can still be seen running: an in-app label writes its history row
+     * only once it is over, so a label job is never on screen while it could
+     * still be cancelled.
+     */
+    fun cancelJob(job: PrintJobRecord) {
+        PrintForegroundService.requestCancel(getApplication(), job.id)
+    }
+
     fun clearLabelStatus() { _labelStatus.value = null }
 
     /**

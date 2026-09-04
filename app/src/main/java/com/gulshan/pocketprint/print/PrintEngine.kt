@@ -14,6 +14,7 @@ import com.gulshan.pocketprint.model.SourceDocument
 import com.gulshan.pocketprint.render.RenderPipeline
 import com.gulshan.pocketprint.render.RenderedDocument
 import com.gulshan.pocketprint.transport.TransportFactory
+import com.gulshan.pocketprint.transport.guardAgainstStall
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -47,6 +48,18 @@ class PrintEngine(
 
         private const val POLL_FIRST_MS = 500L
         private const val POLL_MAX_MS = 4_000L
+
+        /**
+         * How long a write may make no progress at all before the transport is
+         * closed out from under it.
+         *
+         * Generous on purpose. A rasterised page over Bluetooth legitimately
+         * takes minutes, and killing a slow-but-working job is a worse failure
+         * than making someone wait. But a full minute in which not one byte
+         * moved is not a slow printer, it is a stuck one - and the old
+         * behaviour there was to block forever with every queued job behind it.
+         */
+        private const val WRITE_STALL_MS = 60_000L
     }
 
     /**
@@ -285,7 +298,12 @@ class PrintEngine(
                 onPrinter(printer, listener) {
                     TransportFactory.create(context, printer).use { transport ->
                         transport.open()
-                        val sent = transport.write(bytes)
+                        val sent = guardAgainstStall(
+                            stallMs = WRITE_STALL_MS,
+                            unblock = { runCatching { transport.close() } },
+                        ) { heartbeat ->
+                            transport.write(bytes) { heartbeat() }
+                        }
                         // Must drain before use{} closes, or the tail is discarded.
                         transport.finish()
                         PrintResult.Sent(sent, reason = unconfirmedReason(address))
@@ -374,8 +392,18 @@ class PrintEngine(
                         // Copies are already baked into the payload by this point:
                         // TSPL via PRINT, ZPL via ^PQ, ESC/POS by repeating the page,
                         // PCL via ESC&l#X. So the stream goes out exactly once.
-                        val sent = transport.write(rendered.file.inputStream()) { written ->
-                            listener.onProgress(written, total)
+                        //
+                        // Closing the transport is what unblocks a write stuck
+                        // in a syscall, for a stall and for a cancellation
+                        // alike; cancelling the coroutine on its own would not.
+                        val sent = guardAgainstStall(
+                            stallMs = WRITE_STALL_MS,
+                            unblock = { runCatching { transport.close() } },
+                        ) { heartbeat ->
+                            transport.write(rendered.file.inputStream()) { written ->
+                                heartbeat()
+                                listener.onProgress(written, total)
+                            }
                         }
                         transport.finish()
                         PrintResult.Sent(sent, reason = unconfirmedReason(address))

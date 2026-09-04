@@ -23,6 +23,7 @@ import com.gulshan.pocketprint.model.PrintResult
 import com.gulshan.pocketprint.model.SourceDocument
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -33,6 +34,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -49,6 +51,26 @@ class PrintForegroundService : Service() {
         private const val EXTRA_OPTIONS = "options"
         private const val NOTIFICATION_ID = 4711
         private const val RESULT_NOTIFICATION_ID = 4712
+
+        private const val ACTION_CANCEL = "com.gulshan.pocketprint.action.CANCEL_PRINT_JOB"
+        private const val EXTRA_CANCEL_ID = "cancel_job_id"
+
+        /**
+         * Asks the service to stop a job.
+         *
+         * startService rather than startForegroundService on purpose: this is
+         * only meaningful while a job is running, which means the service is
+         * already in the foreground, and starting an idle service from the
+         * background would be refused anyway. If nothing is running the service
+         * winds itself straight back down.
+         */
+        fun requestCancel(context: Context, jobId: String? = null) {
+            val intent = Intent(context, PrintForegroundService::class.java).apply {
+                action = ACTION_CANCEL
+                putExtra(EXTRA_CANCEL_ID, jobId)
+            }
+            runCatching { context.startService(intent) }
+        }
 
         fun start(
             context: Context,
@@ -82,11 +104,28 @@ class PrintForegroundService : Service() {
     private val queue = Mutex()
     private val inFlight = AtomicInteger(0)
 
+    /** Live jobs, so a cancel request can find the one it is asking about. */
+    private val running = ConcurrentHashMap<String, Job>()
+
+    /** Which job the ongoing notification is currently describing. */
+    @Volatile
+    private var notifiedJobId: String? = null
+
     @Volatile
     private var latestStartId = 0
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Updated for a cancel too: stopSelf(id) is ignored unless the id is the
+        // most recent one, so a finishing job must quote the newest.
         latestStartId = startId
+
+        if (intent?.action == ACTION_CANCEL) {
+            cancelJob(intent.getStringExtra(EXTRA_CANCEL_ID))
+            // Not a job, so it takes no foreground slot. Cancelling the last
+            // job leaves the service with nothing to do.
+            stopIfIdle()
+            return START_NOT_STICKY
+        }
 
         // Must happen within ~5 s of startForegroundService, before any parsing
         // that might bail out.
@@ -108,17 +147,38 @@ class PrintForegroundService : Service() {
             return START_NOT_STICKY
         }
 
+        // Minted here rather than inside runJob so the notification's cancel
+        // action and the Jobs screen can both name this exact job.
+        val jobId = UUID.randomUUID().toString()
+
         inFlight.incrementAndGet()
-        scope.launch {
+        val job = scope.launch {
             try {
-                queue.withLock { runJob(printerId, document, options) }
+                queue.withLock { runJob(jobId, printerId, document, options) }
             } finally {
                 // Runs even on cancellation, so the service always winds down.
+                running.remove(jobId)
+                if (notifiedJobId == jobId) notifiedJobId = null
                 if (inFlight.decrementAndGet() == 0) stopSelf(latestStartId)
             }
         }
+        running[jobId] = job
 
         return START_NOT_STICKY
+    }
+
+    /**
+     * Cancelling the coroutine is only half of it. A write blocked in a syscall
+     * ignores cancellation entirely; the stall guard around the transport is
+     * what closes the socket and lets the thread out, and it does that because
+     * this cancellation reaches it.
+     */
+    private fun cancelJob(jobId: String?) {
+        if (jobId == null) {
+            running.values.forEach { it.cancel() }
+        } else {
+            running[jobId]?.cancel()
+        }
     }
 
     /** stopSelf(id) is a no-op once a newer start has arrived, which is the point. */
@@ -127,6 +187,7 @@ class PrintForegroundService : Service() {
     }
 
     private suspend fun runJob(
+        jobId: String,
         printerId: String,
         document: SourceDocument,
         options: PrintOptions,
@@ -135,8 +196,8 @@ class PrintForegroundService : Service() {
         val jobs = ServiceLocator.jobRepository(applicationContext)
         val printer = repository.find(printerId)
 
-        val jobId = UUID.randomUUID().toString()
         val startedAt = System.currentTimeMillis()
+        notifiedJobId = jobId
 
         if (printer == null) {
             jobs.upsert(
@@ -289,6 +350,30 @@ class PrintForegroundService : Service() {
             .setContentIntent(content)
             .setOngoing(ongoing)
             .setOnlyAlertOnce(true)
+            .apply {
+                // The only way out of a job that has gone wrong used to be
+                // force-stopping the app, and this notification is the one
+                // thing on screen while a job runs.
+                val cancellable = notifiedJobId
+                if (ongoing && cancellable != null) {
+                    addAction(
+                        android.R.drawable.ic_menu_close_clear_cancel,
+                        "Cancel",
+                        PendingIntent.getService(
+                            this@PrintForegroundService,
+                            cancellable.hashCode(),
+                            Intent(
+                                this@PrintForegroundService,
+                                PrintForegroundService::class.java,
+                            ).apply {
+                                action = ACTION_CANCEL
+                                putExtra(EXTRA_CANCEL_ID, cancellable)
+                            },
+                            flags,
+                        ),
+                    )
+                }
+            }
             .apply {
                 if (ongoing) setProgress(100, progress, progress <= 0)
                 if (detail != null) {

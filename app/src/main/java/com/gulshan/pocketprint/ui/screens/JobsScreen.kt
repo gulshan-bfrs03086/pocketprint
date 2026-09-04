@@ -28,6 +28,8 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+private val UNFINISHED = setOf(JobState.QUEUED, JobState.RENDERING, JobState.SENDING)
+
 @Composable
 fun JobsScreen(viewModel: PrintersViewModel) {
     val jobs by viewModel.jobs.collectAsStateWithLifecycle()
@@ -99,6 +101,18 @@ fun JobsScreen(viewModel: PrintersViewModel) {
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(top = 4.dp),
                         )
+                    }
+
+                    // A job that has not finished is one somebody may need to
+                    // stop. Before this, a printer that stopped reading meant
+                    // force-stopping the app.
+                    if (job.state in UNFINISHED) {
+                        TextButton(
+                            onClick = { viewModel.cancelJob(job) },
+                            modifier = Modifier.padding(top = 4.dp),
+                        ) {
+                            Text("Cancel")
+                        }
                     }
                 }
             }
