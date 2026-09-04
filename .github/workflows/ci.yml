@@ -2,7 +2,11 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    # Version work happens on release/* before it merges to main, so those
+    # branches need the same gate main gets - otherwise a version is only
+    # checked at the moment it lands, which is the moment it is too late.
+    branches: [main, 'release/**']
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
 

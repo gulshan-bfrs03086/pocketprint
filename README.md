@@ -172,6 +172,10 @@ required hardware features the device lacks, and reports only a generic "Can't i
 This app once became uninstallable on a rugged terminal because `ACCESS_FINE_LOCATION` made the
 build tools imply `android.hardware.location` as **required**. CI now fails on any such feature.
 
+Versions are built on `release/X.Y` branches and reach `main` by merge, so `main` always holds the
+latest — see [docs/RELEASING.md](docs/RELEASING.md). The version is declared once, in
+`app/build.gradle.kts`, and both flavours' version codes derive from it.
+
 ## Layout
 
 ```
