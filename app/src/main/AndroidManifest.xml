@@ -2,10 +2,14 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- Network printing: IPP / IPPS / raw 9100 -->
+    <!-- Network printing: IPP / IPPS / raw 9100.
+
+         CHANGE_WIFI_MULTICAST_STATE is here for the multicast lock mDNS
+         discovery holds while it browses; without it the Wi-Fi chip filters the
+         multicast traffic away and no printer is ever found. ACCESS_WIFI_STATE
+         and ACCESS_NETWORK_STATE are not needed for that, and nothing here
+         inspects the network state, so they are not asked for. -->
     <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
 
     <!-- Bluetooth thermal / label printers. The split permissions (API 31+) are
@@ -17,8 +21,12 @@
         android:usesPermissionFlags="neverForLocation"
         tools:targetApi="s" />
 
-    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"
-        tools:targetApi="tiramisu" />
+    <!-- No storage or media permission of any kind, in either flavour.
+         Documents are picked through the Storage Access Framework and arrive as
+         a content:// URI already carrying its own read grant, which is the whole
+         point of SAF. READ_MEDIA_IMAGES was declared here and READ_EXTERNAL_
+         STORAGE in the legacy flavour; neither was ever requested at runtime, so
+         they granted nothing and only invited a Play photo-policy review. -->
 
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"
         tools:targetApi="tiramisu" />
@@ -31,7 +39,6 @@
          only prints over the network and has granted no Bluetooth access. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE"
         tools:targetApi="34" />
-    <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <uses-feature android:name="android.hardware.usb.host" android:required="false" />
     <uses-feature android:name="android.hardware.bluetooth" android:required="false" />

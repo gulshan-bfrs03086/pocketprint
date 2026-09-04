@@ -17,9 +17,6 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"
         android:maxSdkVersion="30" />
 
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
-        android:maxSdkVersion="32" />
-
     <!--
       ACCESS_FINE_LOCATION above makes aapt imply android.hardware.location as a
       REQUIRED feature, and the package manager then refuses to install on any
