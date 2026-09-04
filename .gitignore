@@ -10,6 +10,7 @@ captures/
 *.apk
 *.aab
 *.keystore
+*.jks
 !debug.keystore
 
 # Kotlin/Gradle scratch
@@ -19,3 +20,6 @@ captures/
 
 # Signed sideload builds are produced by apksigner, not checked in
 pocketprint-*.apk
+
+# Release signing: paths and passwords, never committed
+keystore.properties

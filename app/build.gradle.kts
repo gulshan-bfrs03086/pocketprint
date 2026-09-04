@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -24,6 +26,37 @@ val versionPatch = 0
  * install either takes the build with fewer permissions.
  */
 val baseVersionCode = (versionMajor * 10000 + versionMinor * 100 + versionPatch) * 10
+
+/**
+ * Release signing material, when there is any.
+ *
+ * Read from keystore.properties at the repository root - which is gitignored,
+ * and holds a path to a keystore that is also never committed - or from the
+ * environment, so CI can pass it in from secrets without a file on disk.
+ *
+ * When neither is present the release build is left unsigned. It deliberately
+ * does not fall back to the debug key: an APK signed with the public AOSP debug
+ * key looks signed and is not, whereas one AGP names "-unsigned" tells the
+ * truth. Being unsigned also keeps the release build compiling on a fork or a
+ * pull request, where no secret is available and none should be.
+ */
+val keystoreProperties = Properties().apply {
+    val file = rootProject.file("keystore.properties")
+    if (file.exists()) file.inputStream().use { load(it) }
+}
+
+fun signingSetting(property: String, environment: String): String? =
+    (keystoreProperties.getProperty(property) ?: System.getenv(environment))
+        ?.takeIf { it.isNotBlank() }
+
+val releaseStore = signingSetting("storeFile", "POCKETPRINT_KEYSTORE")
+val releaseStorePassword = signingSetting("storePassword", "POCKETPRINT_KEYSTORE_PASSWORD")
+val releaseKeyAlias = signingSetting("keyAlias", "POCKETPRINT_KEY_ALIAS")
+val releaseKeyPassword = signingSetting("keyPassword", "POCKETPRINT_KEY_PASSWORD")
+
+val canSignRelease = listOf(
+    releaseStore, releaseStorePassword, releaseKeyAlias, releaseKeyPassword,
+).all { it != null }
 
 android {
     namespace = "com.gulshan.pocketprint"
@@ -86,6 +119,22 @@ android {
             enableV1Signing = true
             enableV2Signing = true
         }
+
+        if (canSignRelease) {
+            create("release") {
+                storeFile = file(releaseStore!!)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+
+                // v1 for the same reason as debug: the legacy flavour installs
+                // back to Android 7, and some OEM installers of that era only
+                // look at the JAR signature.
+                enableV1Signing = true
+                enableV2Signing = true
+                enableV3Signing = true
+            }
+        }
     }
 
     buildTypes {
@@ -97,6 +146,10 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+
+            // Null when no key is configured, which leaves an APK named
+            // "-unsigned" rather than one signed by a key anyone else also has.
+            signingConfig = signingConfigs.findByName("release")
         }
     }
 

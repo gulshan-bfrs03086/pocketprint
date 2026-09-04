@@ -149,9 +149,12 @@ build asks for no location access at all. Neither build requires *any* hardware 
 install on devices without GPS, a camera or a touchscreen.
 
 > [!NOTE]
-> Release APKs are signed with Android's **public debug keystore**, so they carry no authenticity
-> guarantee. Checksums are on the release page; build from source if you'd rather not trust a
-> binary.
+> Releases are built and signed by [a tag-triggered workflow](.github/workflows/release.yml),
+> which prints the signing certificate's fingerprint into its log so a downloaded APK can be
+> checked against it (`apksigner verify --print-certs`). Checksums are on the release page.
+> Anything published before **v1.1.0** is a debug build signed with Android's public debug
+> keystore and carries no authenticity guarantee at all — and because debug builds use a
+> different package name, the first signed release installs *alongside* it rather than over it.
 
 Then turn the print service on once, under **Settings → Connected devices → Printing →
 PocketPrint**. There's a button in the app that takes you straight there.

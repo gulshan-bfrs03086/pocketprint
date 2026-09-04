@@ -15,12 +15,14 @@
 # A printing app should require no hardware at all: every transport is optional.
 set -euo pipefail
 
-# Check every APK given, or every debug APK in the build output by default.
+# Check every APK given, or every APK in the build output by default. Release
+# builds are included: they are the ones that get published, and R8 and resource
+# shrinking sit between the manifest and what actually ships.
 if [[ $# -gt 0 ]]; then
   APKS=("$@")
 else
   # shellcheck disable=SC2207
-  APKS=($(find app/build/outputs/apk -name "*-debug.apk" 2>/dev/null | sort))
+  APKS=($(find app/build/outputs/apk -name "*.apk" 2>/dev/null | sort))
 fi
 
 if [[ ${#APKS[@]} -eq 0 ]]; then
