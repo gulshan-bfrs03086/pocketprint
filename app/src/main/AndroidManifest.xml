@@ -23,7 +23,13 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"
         tools:targetApi="tiramisu" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"
+    <!-- A print job drives a peripheral over Bluetooth, USB or the LAN, which is
+         what connectedDevice describes. It was dataSync, which Android 15 caps
+         at six hours a day and then times out; connectedDevice is not capped.
+         Its prerequisite is met by CHANGE_WIFI_MULTICAST_STATE above and the
+         usb.host feature below, so the service still starts for someone who
+         only prints over the network and has granted no Bluetooth access. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE"
         tools:targetApi="34" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
@@ -114,7 +120,7 @@
         <service
             android:name=".print.PrintForegroundService"
             android:exported="false"
-            android:foregroundServiceType="dataSync" />
+            android:foregroundServiceType="connectedDevice" />
 
         <provider
             android:name="androidx.core.content.FileProvider"

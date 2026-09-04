@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
+import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.gulshan.pocketprint.MainActivity
@@ -26,6 +27,7 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -197,6 +199,36 @@ class PrintForegroundService : Service() {
         }
         notify(document.displayName, summary, 100, ongoing = false)
     }
+
+    /**
+     * A foreground service the system decides has run too long is given a
+     * timeout callback, and an app that does not implement it is ANRed. The
+     * connectedDevice type this service declares is not one of the capped types
+     * today, so this is a backstop rather than a routine path - but the cost of
+     * not having it is the whole app dying mid-transfer with the progress
+     * notification still on screen, saying nothing.
+     *
+     * Cancelling the job takes the CancellationException path in runJob, so the
+     * history row lands on CANCELLED instead of being stranded at SENDING.
+     */
+    private fun windDownAfterSystemTimeout() {
+        scope.coroutineContext.cancelChildren()
+        notify(
+            "Print job stopped",
+            "Android stopped this job because it ran too long.",
+            0,
+            ongoing = false,
+        )
+        stopSelf()
+    }
+
+    /** Android 15 calls this one. */
+    @RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
+    override fun onTimeout(startId: Int) = windDownAfterSystemTimeout()
+
+    /** Android 16 calls this one instead, so both have to be here. */
+    @RequiresApi(Build.VERSION_CODES.BAKLAVA)
+    override fun onTimeout(startId: Int, fgsType: Int) = windDownAfterSystemTimeout()
 
     override fun onDestroy() {
         scope.cancel()
