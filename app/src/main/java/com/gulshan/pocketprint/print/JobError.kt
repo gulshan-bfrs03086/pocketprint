@@ -30,7 +30,8 @@ object JobError {
         return when {
             "socket might closed" in message ||
                 "broken pipe" in message ||
-                "connection reset" in message -> R.string.job_error_asleep
+                "connection reset" in message ||
+                "closed the connection" in message -> R.string.job_error_asleep
 
             "stopped accepting data" in message -> R.string.job_error_stalled
 

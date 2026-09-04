@@ -40,9 +40,20 @@ interface PrinterTransport : Closeable {
     suspend fun finish()
 
     /**
-     * Reads whatever the printer volunteers within the timeout. Thermal printers
-     * use this for status bytes; most page printers stay silent, so an empty
-     * array is a normal result rather than an error.
+     * Reads whatever the printer volunteers within the timeout.
+     *
+     * An empty array means the printer said nothing, which is a normal result:
+     * most page printers never do. A connection that has gone away is not that,
+     * and must throw rather than come back empty — the difference decides
+     * whether silence gets read as an answer.
+     *
+     * That distinction is about to stop being free. Up to targetSdk 36 a
+     * dropped socket throws IOException here; from 37 read() returns -1
+     * instead, so a loop that only checks for a positive count spins out its
+     * timeout and reports the same empty array a working, quiet printer would.
+     * Language detection is built on exactly that inference — silence to the
+     * TSPL status command is what rules TSPL out — so a dropped connection
+     * would come back as a confident answer about the printer's dialect.
      */
     suspend fun readAvailable(timeoutMs: Long = 400): ByteArray = ByteArray(0)
 }

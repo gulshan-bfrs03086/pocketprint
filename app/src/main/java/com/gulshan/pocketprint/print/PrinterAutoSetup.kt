@@ -172,9 +172,25 @@ class PrinterAutoSetup(private val context: Context) {
             mark(STEP_DETECT, StepState.RUNNING)
             push()
 
-            val detected = runCatching { detectLanguage(open) }
-                .onFailure { Log.w(TAG, "probe failed", it) }
-                .getOrNull()
+            val probe = runCatching { detectLanguage(open) }
+
+            // A probe that threw means the connection went away, not that the
+            // printer stayed quiet. Those are one signal apart and worlds apart
+            // in meaning: silence is how a dialect is ruled out, so reporting a
+            // dead socket as "no reply, so TSPL assumed from the name" would be
+            // a confident statement about the printer derived from the
+            // connection dying. Better to say the connection died.
+            val probeFailure = probe.exceptionOrNull()
+            if (probeFailure is kotlinx.coroutines.CancellationException) throw probeFailure
+            if (probeFailure != null) {
+                Log.w(TAG, "probe failed", probeFailure)
+                mark(STEP_DETECT, StepState.FAILED, probeFailure.message)
+                skipRest(STEP_DETECT)
+                push(finished = true, error = probeFailure.message)
+                return@flow
+            }
+
+            val detected = probe.getOrNull()
 
             val language = detected?.language ?: guessFromName(printer.displayName)
             mark(

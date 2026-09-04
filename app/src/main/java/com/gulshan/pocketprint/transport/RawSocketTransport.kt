@@ -73,17 +73,19 @@ class RawSocketTransport(
 
     override suspend fun readAvailable(timeoutMs: Long): ByteArray = withContext(Dispatchers.IO) {
         val s = socket ?: return@withContext ByteArray(0)
-        try {
+        val read = try {
             s.soTimeout = timeoutMs.toInt().coerceAtLeast(1)
             val input = s.getInputStream()
             val available = input.available()
             if (available <= 0) return@withContext ByteArray(0)
             val buf = ByteArray(available.coerceAtMost(4096))
             val n = input.read(buf)
-            if (n <= 0) ByteArray(0) else buf.copyOf(n)
+            // Same distinction as RFCOMM: 0 is nothing to say, -1 is gone.
+            if (n < 0) null else buf.copyOf(n.coerceAtLeast(0))
         } catch (_: Throwable) {
             ByteArray(0)
         }
+        read ?: throw TransportException("The printer closed the connection")
     }
 
     override fun close() {
