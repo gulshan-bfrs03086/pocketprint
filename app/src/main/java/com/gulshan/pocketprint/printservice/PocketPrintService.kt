@@ -116,8 +116,22 @@ class PocketPrintService : PrintService() {
                             options = options,
                         )
                     ) {
-                        is PrintResult.Success -> {
-                            Log.i(TAG, "sent ${result.bytesSent} bytes to ${printer.displayName}")
+                        // The framework has exactly two terminal states here,
+                        // complete() and fail(), and no way to say "handed over,
+                        // outcome unknown" - so an unconfirmed job has to be
+                        // completed. The distinction is not lost: it is recorded
+                        // honestly in the app's own job history, which is where
+                        // the reason can actually be shown.
+                        is PrintResult.Completed -> {
+                            Log.i(TAG, "${printer.displayName} confirmed ${result.bytesSent} bytes")
+                            complete(printJob)
+                        }
+                        is PrintResult.Sent -> {
+                            Log.i(
+                                TAG,
+                                "sent ${result.bytesSent} bytes to ${printer.displayName}, " +
+                                    "unconfirmed: ${result.reason}",
+                            )
                             complete(printJob)
                         }
                         is PrintResult.Failure -> fail(printJob, result.message)

@@ -292,4 +292,43 @@ object IppCapabilityMapper {
     }
 
     fun jobId(response: IppResponse): Int? = response.jobGroup()?.get("job-id")?.asInt()
+
+    fun jobState(response: IppResponse): IppJobState? =
+        IppJobState.of(response.jobGroup()?.get("job-state")?.asInt())
+
+    /**
+     * Why the job is where it is - "media-empty-error", "job-printing" and so
+     * on. The keyword "none" means the printer has nothing to add, so it is
+     * dropped rather than shown to a user as a reason.
+     */
+    fun jobStateReasons(response: IppResponse): List<String> =
+        response.jobGroup()?.get("job-state-reasons")?.asStrings().orEmpty()
+            .filterNot { it.equals("none", ignoreCase = true) }
+}
+
+/**
+ * Where an IPP job has got to. RFC 8011 §5.3.7.
+ *
+ * This enum is the reason a network print job can report an honest outcome at
+ * all: it is the only transport here that will tell us what happened after the
+ * bytes left. Bluetooth, USB and raw 9100 have no equivalent.
+ */
+enum class IppJobState(val code: Int, val terminal: Boolean) {
+    PENDING(3, false),
+    PENDING_HELD(4, false),
+    PROCESSING(5, false),
+
+    /** Paused - out of paper, cover open, or waiting for a person. */
+    PROCESSING_STOPPED(6, false),
+
+    CANCELED(7, true),
+    ABORTED(8, true),
+    COMPLETED(9, true),
+    ;
+
+    val label: String get() = name.lowercase().replace('_', ' ')
+
+    companion object {
+        fun of(code: Int?): IppJobState? = entries.firstOrNull { it.code == code }
+    }
 }

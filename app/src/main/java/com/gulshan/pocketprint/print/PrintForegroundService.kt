@@ -159,10 +159,21 @@ class PrintForegroundService : Service() {
                 printer = printer,
                 source = document,
                 options = options,
-            ) { sent, total ->
-                val percent = if (total > 0) (sent * 100 / total).toInt() else 0
-                notifyProgress(document.displayName, "Sending to ${printer.displayName}", percent)
-            }
+                onProgress = { sent, total ->
+                    val percent = if (total > 0) (sent * 100 / total).toInt() else 0
+                    notifyProgress(
+                        document.displayName,
+                        "Sending to ${printer.displayName}",
+                        percent,
+                    )
+                },
+                // Only IPP ever reports back, and when it does the wait can be
+                // long. Saying "waiting for the printer - processing" beats a
+                // progress bar sitting at 100% for two minutes.
+                onStatus = { status ->
+                    notify(document.displayName, "${printer.displayName}: $status", 100)
+                },
+            )
         } catch (cancel: CancellationException) {
             // The history row must not be left stranded at SENDING. Written
             // outside the cancelled scope, or the upsert would itself be
@@ -180,10 +191,18 @@ class PrintForegroundService : Service() {
         }
 
         val record = when (result) {
-            is PrintResult.Success -> PrintJobRecord(
+            // Only this branch is allowed to say COMPLETED, and only an IPP
+            // printer reporting job-state=completed can reach it.
+            is PrintResult.Completed -> PrintJobRecord(
                 jobId, printer.id, printer.displayName, document.displayName,
                 JobState.COMPLETED, startedAt, System.currentTimeMillis(),
                 bytesSent = result.bytesSent,
+            )
+            is PrintResult.Sent -> PrintJobRecord(
+                jobId, printer.id, printer.displayName, document.displayName,
+                JobState.SENT, startedAt, System.currentTimeMillis(),
+                bytesSent = result.bytesSent,
+                note = result.reason,
             )
             is PrintResult.Failure -> PrintJobRecord(
                 jobId, printer.id, printer.displayName, document.displayName,
@@ -194,10 +213,17 @@ class PrintForegroundService : Service() {
         jobs.upsert(record)
 
         val summary = when (result) {
-            is PrintResult.Success -> "Sent to ${printer.displayName}"
+            is PrintResult.Completed -> "${printer.displayName} printed it"
+            is PrintResult.Sent -> "Sent to ${printer.displayName} - not confirmed"
             is PrintResult.Failure -> result.message
         }
-        notify(document.displayName, summary, 100, ongoing = false)
+        // The reason a job cannot be confirmed is the actionable part, so it
+        // goes in the expanded notification rather than being dropped.
+        val detail = when (result) {
+            is PrintResult.Sent -> result.reason
+            else -> null
+        }
+        notify(document.displayName, summary, 100, ongoing = false, detail = detail)
     }
 
     /**
@@ -240,6 +266,7 @@ class PrintForegroundService : Service() {
         text: String,
         progress: Int,
         ongoing: Boolean = true,
+        detail: String? = null,
     ): Notification {
         val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
@@ -257,18 +284,29 @@ class PrintForegroundService : Service() {
             .setContentIntent(content)
             .setOngoing(ongoing)
             .setOnlyAlertOnce(true)
-            .apply { if (ongoing) setProgress(100, progress, progress <= 0) }
+            .apply {
+                if (ongoing) setProgress(100, progress, progress <= 0)
+                if (detail != null) {
+                    setStyle(NotificationCompat.BigTextStyle().bigText("$text\n\n$detail"))
+                }
+            }
             .build()
     }
 
-    private fun notify(title: String, text: String, progress: Int, ongoing: Boolean = true) {
+    private fun notify(
+        title: String,
+        text: String,
+        progress: Int,
+        ongoing: Boolean = true,
+        detail: String? = null,
+    ) {
         runCatching {
             // The terminal notification needs its own id: the foreground one is
             // torn down with the service, which would erase the outcome.
             val id = if (ongoing) NOTIFICATION_ID else RESULT_NOTIFICATION_ID
             if (!ongoing) detachForegroundNotification()
             NotificationManagerCompat.from(this)
-                .notify(id, buildNotification(title, text, progress, ongoing))
+                .notify(id, buildNotification(title, text, progress, ongoing, detail))
         }
     }
 

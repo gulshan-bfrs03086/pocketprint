@@ -74,6 +74,13 @@ object IppStatus {
     const val SUCCESSFUL_OK_IGNORED_ATTRIBUTES = 0x0001
     const val SUCCESSFUL_OK_CONFLICTING_ATTRIBUTES = 0x0002
 
+    /**
+     * What a printer answers about a job it has forgotten. Printers purge
+     * finished jobs on their own schedule, so this is the usual reply once a
+     * job is well and truly over - which makes it evidence, not confirmation.
+     */
+    const val CLIENT_ERROR_NOT_FOUND = 0x0406
+
     fun isSuccess(code: Int) = code in 0x0000..0x00FF
 
     fun describe(code: Int): String = when (code) {

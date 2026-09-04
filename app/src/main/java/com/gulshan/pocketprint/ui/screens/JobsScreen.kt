@@ -74,7 +74,11 @@ fun JobsScreen(viewModel: PrintersViewModel) {
                     )
                     Text(
                         text = when (job.state) {
-                            JobState.COMPLETED -> "Sent (${job.bytesSent / 1024} KB)"
+                            // "Printed" is claimed only where a printer said so.
+                            // Everything else that left the device is "Sent",
+                            // and the row carries the reason underneath.
+                            JobState.COMPLETED -> "Printed (${job.bytesSent / 1024} KB)"
+                            JobState.SENT -> "Sent (${job.bytesSent / 1024} KB) - not confirmed"
                             JobState.FAILED -> job.error ?: "Failed"
                             else -> job.state.name.lowercase()
                                 .replaceFirstChar { it.uppercase() }
@@ -83,10 +87,19 @@ fun JobsScreen(viewModel: PrintersViewModel) {
                         color = when (job.state) {
                             JobState.FAILED -> MaterialTheme.colorScheme.error
                             JobState.COMPLETED -> Color(0xFF2E7D32)
+                            JobState.SENT -> Color(0xFF8A6D00)
                             else -> MaterialTheme.colorScheme.onSurfaceVariant
                         },
                         modifier = Modifier.padding(top = 4.dp),
                     )
+                    job.note?.let { note ->
+                        Text(
+                            note,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                    }
                 }
             }
         }

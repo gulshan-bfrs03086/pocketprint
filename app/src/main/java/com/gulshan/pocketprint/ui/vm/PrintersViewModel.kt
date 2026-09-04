@@ -335,10 +335,15 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
         val jobId = java.util.UUID.randomUUID().toString()
         val startedAt = System.currentTimeMillis()
 
-        val result = engine.printRaw(printer, bytes, name, _options.value)
+        val result = engine.printRaw(printer, bytes, name, _options.value) { status ->
+            _labelStatus.value = "${printer.displayName}: $status"
+        }
 
         _labelStatus.value = when (result) {
-            is PrintResult.Success -> "Sent ${result.bytesSent} bytes to ${printer.displayName}"
+            is PrintResult.Completed ->
+                "${printer.displayName} printed ${result.bytesSent} bytes"
+            is PrintResult.Sent ->
+                "Sent ${result.bytesSent} bytes. ${result.reason}"
             is PrintResult.Failure -> "Failed: ${result.message}"
         }
 
@@ -348,11 +353,16 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
                 printerId = printer.id,
                 printerName = printer.displayName,
                 documentName = name,
-                state = if (result is PrintResult.Success) JobState.COMPLETED else JobState.FAILED,
+                state = when (result) {
+                    is PrintResult.Completed -> JobState.COMPLETED
+                    is PrintResult.Sent -> JobState.SENT
+                    is PrintResult.Failure -> JobState.FAILED
+                },
                 createdAtEpochMs = startedAt,
                 finishedAtEpochMs = System.currentTimeMillis(),
-                bytesSent = (result as? PrintResult.Success)?.bytesSent ?: 0L,
+                bytesSent = (result as? PrintResult.Delivered)?.bytesSent ?: 0L,
                 error = (result as? PrintResult.Failure)?.message,
+                note = (result as? PrintResult.Sent)?.reason,
             ),
         )
     }
