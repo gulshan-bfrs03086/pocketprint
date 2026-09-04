@@ -132,10 +132,10 @@ android {
 
     signingConfigs {
         getByName("debug") {
-            // AGP drops JAR signing when minSdk >= 24. Android 9 verifies v2
-            // fine, but some OEM package installers on older releases still
-            // want v1, and including it costs nothing on a sideloaded build.
-            enableV1Signing = true
+            // No v1. JAR signing is only consulted below API 24, and the lowest
+            // flavour here starts exactly at 24, so apksigner omits it whatever
+            // this config asks for. enableV1Signing used to be set here and the
+            // APK came out without a v1 signature anyway.
             enableV2Signing = true
         }
 
@@ -146,10 +146,17 @@ android {
                 keyAlias = releaseKeyAlias
                 keyPassword = releaseKeyPassword
 
-                // v1 for the same reason as debug: the legacy flavour installs
-                // back to Android 7, and some OEM installers of that era only
-                // look at the JAR signature.
-                enableV1Signing = true
+                // v2 is what carries the legacy flavour: it starts at Android
+                // 7.0, which is the release that introduced v2 verification, so
+                // every device it can install on can check it. v3 carries modern
+                // by itself - apksigner stops emitting v2 from minSdk 28 up.
+                //
+                // No v1, and this is not an oversight to be corrected later.
+                // Android consults a JAR signature only below API 24; nothing
+                // built here goes that low. The flag was set for years with a
+                // comment about OEM installers on "Android 7" needing it, which
+                // was wrong twice over: API 24 *is* Android 7.0, and apksigner
+                // reported v1: false on both v1.1.0 APKs while the flag was on.
                 enableV2Signing = true
                 enableV3Signing = true
             }
