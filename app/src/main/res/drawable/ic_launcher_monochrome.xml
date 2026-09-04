@@ -1,0 +1,23 @@
+<!--
+  The themed-launcher version of the icon.
+
+  Android tints this a single colour taken from the wallpaper, so every shape
+  has to read as one silhouette: the status light that is a different colour in
+  the full icon is the same colour here, and only the negative space between
+  the printer, the paper feeding in and the sheet coming out carries the shape.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M38,26h32v14h-32z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M30,44h48a5,5 0 0 1 5,5v18a5,5 0 0 1 -5,5h-6v-12h-36v12h-6a5,5 0 0 1 -5,-5v-18a5,5 0 0 1 5,-5z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M38,64h32v20h-32z" />
+</vector>

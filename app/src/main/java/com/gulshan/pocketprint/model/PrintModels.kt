@@ -36,7 +36,6 @@ data class PrintOptions(
     val pageTo: Int? = null,
     val fitToPage: Boolean = true,
     /** Thermal printers: darkness/heat. 0-15 for TSPL, 0-30 for ZPL. */
-    val density: Int = 8,
     /** Error-diffusion dithering when reducing to 1 bit. Off gives hard threshold. */
     val dither: Boolean = true,
 ) {
@@ -49,7 +48,20 @@ data class PrintOptions(
         }
 }
 
-enum class JobState { QUEUED, RENDERING, SENDING, COMPLETED, FAILED, CANCELLED }
+/**
+ * How far a job got.
+ *
+ * SENT and COMPLETED are deliberately not the same thing, and the distinction
+ * is the whole point. A write to a Bluetooth socket returns when the bytes are
+ * in the OS buffer; the printer may be out of paper, loaded with the wrong
+ * stock, or off. Field testing produced six jobs in a row recorded as COMPLETED
+ * with no error while nothing came out of the printer, which sent the whole
+ * investigation into the command language, which was never at fault.
+ *
+ * SENT means the bytes left the device and nothing more. COMPLETED means the
+ * printer said so.
+ */
+enum class JobState { QUEUED, RENDERING, SENDING, SENT, COMPLETED, FAILED, CANCELLED }
 
 @Serializable
 data class PrintJobRecord(
@@ -63,10 +75,63 @@ data class PrintJobRecord(
     val pageCount: Int = 0,
     val bytesSent: Long = 0,
     val error: String? = null,
-)
+    /** Why a [JobState.SENT] job could not be confirmed. Never set on a failure. */
+    val note: String? = null,
 
-/** Outcome of handing bytes to a printer. */
+    /**
+     * Enough to run the job again.
+     *
+     * "The printer was asleep, the job failed, turn it on, print it again" is
+     * the commonest sequence there is, and without these it meant finding the
+     * file again and re-picking every option. The uri points into this app's
+     * own cache rather than at the original document, because a share grant
+     * dies with the activity that received it and a picked document's grant
+     * dies with the process.
+     */
+    val documentUri: String? = null,
+    val documentMimeType: String? = null,
+    val options: PrintOptions? = null,
+) {
+    /** Whether this job carries enough to be run again. */
+    val replayable: Boolean get() = !documentUri.isNullOrBlank() && options != null
+}
+
+/**
+ * Outcome of handing bytes to a printer.
+ *
+ * There is no Success, on purpose. "The write returned" and "the document
+ * printed" are different claims, and conflating them is what let this app tell
+ * a user six times that a job had completed while the printer produced blank
+ * labels. Only a printer that reports back can produce [Completed]; everything
+ * else is [Sent], which says exactly as much as is actually known.
+ */
 sealed interface PrintResult {
-    data class Success(val bytesSent: Long, val jobId: Int? = null) : PrintResult
+
+    /** Not a failure. How much is known differs between the two. */
+    sealed interface Delivered : PrintResult {
+        val bytesSent: Long
+        val jobId: Int?
+    }
+
+    /**
+     * The payload left the device and the transport drained cleanly. Whether
+     * anything was printed is unknown and, on most of these transports,
+     * unknowable: RFCOMM, USB bulk and raw 9100 carry no acknowledgement.
+     *
+     * [reason] says why there is no confirmation, so the user has something to
+     * pull on rather than a shrug.
+     */
+    data class Sent(
+        override val bytesSent: Long,
+        override val jobId: Int? = null,
+        val reason: String,
+    ) : Delivered
+
+    /** The printer itself reported the job finished. */
+    data class Completed(
+        override val bytesSent: Long,
+        override val jobId: Int? = null,
+    ) : Delivered
+
     data class Failure(val message: String, val cause: Throwable? = null) : PrintResult
 }

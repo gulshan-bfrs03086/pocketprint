@@ -40,11 +40,28 @@ print dialog, alongside your office laser.
 builds TSPL/ZPL commands directly, so barcodes are rendered by the printer's own firmware and
 stay sharp and scannable at small sizes rather than being blurry images.
 
+**Print in your own script.** A thermal printer's resident fonts hold Latin characters and
+nothing else, so Hindi, Arabic, Thai and Chinese come out as rows of question marks — in exactly
+the markets that buy these printers. Text the printer cannot carry is laid out on the phone,
+with Android's font fallback and its shaping and bidirectional reordering, and sent as an image.
+Latin text keeps the fast, crisp printer-font path.
+
 **Print receipts from a handheld.** ESC/POS to any 58 mm or 80 mm thermal printer.
+
+**See what the printer will actually print.** Preview shows the packed one-bit raster on its way
+to the head — not a second, prettier rendering of the document. A photo that dithers to mud and a
+hairline that falls under the threshold and disappears both show up before a label is consumed
+finding out.
 
 **Print from any app to a Bluetooth printer.** Share a PDF from Drive, hit Print in Chrome, or
 use the system print dialog — the app converts whatever Android hands it into the printer's own
 command language.
+
+**Use the roll you actually have.** Any label size, typed in millimetres — 50×30 and 60×40 are
+the two most common rolls on the market. Gap, black-mark or continuous sensing, because a printer
+told to look for a gap that is not there feeds forward hunting for one and stops with a paper
+fault. Darkness, because a barcode printed too faint scans intermittently and looks like a bad
+barcode rather than a heat setting. And a calibrate button for when registration drifts.
 
 **Reach printers nothing else will talk to.** Old network printers with no AirPrint, via raw
 port 9100. USB printers over an OTG cable. IPP Everywhere printers that only accept PWG Raster.
@@ -81,18 +98,23 @@ The setup flow pairs, connects, probes for the language, works out the label siz
 width, prints a test label, and registers the printer with Android — showing you what happened
 at each step rather than a spinner.
 
-## When the label comes out blank
+## Setup asks whether the label printed
 
-Read the symptom carefully, because two very different faults look similar.
+Because nothing else can. A thermal printer reports paper loaded, head down and no error whether
+it just printed a perfect label, fed a blank one, or spat out a page of command text — from its
+point of view all three are true. So after the test label, setup asks the one question the
+protocol cannot answer, and the three answers point at three different faults:
 
-**The label feeds but is completely blank.** This is the paper, and it is the most common
-first-time failure by a wide margin. Thermal printers have no ink; they mark heat-sensitive
-stock, on one side only. Ordinary paper labels, or a thermal roll loaded upside down, feed
-perfectly and stay white. Nothing in the protocol can catch this: asked directly, the printer
-reports paper loaded, head down and no error, because from its point of view that is all true.
+**Nothing, or a blank label.** This is the paper, and it is the most common first-time failure by
+a wide margin. Thermal printers have no ink; they mark heat-sensitive stock, on one side only.
+Ordinary paper labels, or a thermal roll loaded upside down, feed perfectly and stay white.
 
-**Stray characters, or pages of readable commands.** That one really is the command language.
-Change it in the printer's settings, where there is a test-page button.
+**It printed, but the output is wrong.** *That* one is the command language, and there are only
+two candidates — so the dialog offers to switch to the other and print another test.
+
+**It printed and looks right.** The printer is marked as confirmed. On Bluetooth, USB or a raw
+socket that is the only confirmation that exists anywhere: none of those protocols reports what
+the printer did with the bytes.
 
 ## How it works
 
@@ -138,23 +160,36 @@ builds of identical code:
 | | `pocketprint-modern.apk` | `pocketprint-legacy.apk` |
 |---|---|---|
 | Android | **12+** (API 31) | **7.0+** (API 24) |
-| Location permission | **none** | `ACCESS_FINE_LOCATION` (API ≤ 30) |
+| Location permission | **none** | **none** |
 | Size | 18 MB | 19 MB |
 
 **Use `modern` unless your device is older than Android 12.**
 
-Before API 31, scanning for a Bluetooth device required the location permission, because a scan
-can reveal position. `BLUETOOTH_SCAN` with `neverForLocation` replaced that — so the modern
-build asks for no location access at all. Neither build requires *any* hardware feature, so both
-install on devices without GPS, a camera or a touchscreen.
+Neither build asks for a location permission, and neither asks for permission to scan. Pairing
+goes through Android's own companion device picker, which scans on the app's behalf — an app
+that does not scan does not need permission to. Before that change the legacy build carried
+`ACCESS_FINE_LOCATION`, because a Bluetooth scan on those versions required it, which is how
+this app once became uninstallable on a rugged terminal with no GPS.
+
+Neither build requires *any* hardware feature, so both install on devices without GPS, a camera
+or a touchscreen.
 
 > [!NOTE]
-> Release APKs are signed with Android's **public debug keystore**, so they carry no authenticity
-> guarantee. Checksums are on the release page; build from source if you'd rather not trust a
-> binary.
+> Releases are built and signed by [a tag-triggered workflow](.github/workflows/release.yml),
+> which prints the signing certificate's fingerprint into its log so a downloaded APK can be
+> checked against it (`apksigner verify --print-certs`). Checksums are on the release page.
+> Anything published before **v1.1.0** is a debug build signed with Android's public debug
+> keystore and carries no authenticity guarantee at all — and because debug builds use a
+> different package name, the first signed release installs *alongside* it rather than over it.
 
 Then turn the print service on once, under **Settings → Connected devices → Printing →
-PocketPrint**. There's a button in the app that takes you straight there.
+PocketPrint**. There's a button in the app that takes you straight there, and the app tells you
+whether the switch is already on — or says plainly that this version of Android will not let it
+find out.
+
+PocketPrint asks for nothing on first launch. Each permission is requested at the moment it is
+needed: Bluetooth when you set up a printer, notifications when you print. If one has been
+refused to the point where Android stops asking, the app says so and offers the way back.
 
 ## Build
 
@@ -165,6 +200,7 @@ export JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home
 ./gradlew assembleLegacyDebug     # Android 7.0+
 ./gradlew testLegacyDebugUnitTest testModernDebugUnitTest
 ./scripts/check-required-features.sh   # no required hardware features
+./scripts/check-platform-packages.sh   # one non-SDK dependency, and it has a fallback
 ```
 
 That last check is a build gate, not a nicety. Android refuses to install a package whose
@@ -172,9 +208,29 @@ required hardware features the device lacks, and reports only a generic "Can't i
 This app once became uninstallable on a rugged terminal because `ACCESS_FINE_LOCATION` made the
 build tools imply `android.hardware.location` as **required**. CI now fails on any such feature.
 
+The second check guards the one place this app reaches outside the public SDK. WebView's
+`PrintDocumentAdapter` is the only thing that paginates HTML properly, and driving it without the
+system print dialog needs a class placed inside the `android.print` package, where the result
+callbacks have package-private constructors. That works today, is unsupported, and would take
+every shared link and HTML document down together the day it stops. So it has a public-API
+fallback — `PdfDocument` and `WebView.draw`, worse output but a document that prints — and the
+check fails if a second platform-package class appears or if the fallback stops being wired in.
+
 Versions are built on `release/X.Y` branches and reach `main` by merge, so `main` always holds the
 latest — see [docs/RELEASING.md](docs/RELEASING.md). The version is declared once, in
 `app/build.gradle.kts`, and both flavours' version codes derive from it.
+
+## Translating it
+
+Every string a user reads is in `app/src/main/res/values/strings.xml`, with positional format
+arguments so a translation can reorder them. Adding a language is a `values-xx/strings.xml` and
+one line in [`locales_config.xml`](app/src/main/res/xml/locales_config.xml), after which Android
+lists the app under **Settings → Apps → App languages**.
+
+Two things are deliberately left in English. Protocol vocabulary — TSPL, ZPL, ESC/POS, and IPP's
+own `job-state` keywords — because those are the protocols' names for themselves. And the
+technical text a transport produces when it fails, because that is what gets pasted into a bug
+report; what a person can *act* on is a separate, translated sentence shown above it.
 
 ## Layout
 
@@ -202,9 +258,19 @@ stream under `getExternalFilesDir` for byte-level inspection. On a 4x6 label at 
 US Letter page renders to 812 x 1051 dots at 30.02% ink and emits exactly 107,357 bytes of
 TSPL. That makes it quick to tell a rendering bug from a printer that is not marking.
 
-**32 unit tests** cover the IPP codec (request framing, multi-value and resolution decoding,
+**204 unit tests** cover the IPP codec (request framing, multi-value and resolution decoding,
 unknown-tag tolerance), PWG raster round trips including band-boundary equivalence, PWG media
-name parsing, and the exact TSPL output. CI builds and tests both variants on every push.
+name parsing, the exact TSPL output, which document types the exported share target will accept,
+the IPP job-state decoding that decides whether a job may be called printed, the per-printer job
+queue that keeps two jobs out of one RFCOMM slot, the rules that decide what the system print
+dialog is told about a printer, the stall guard that pulls a write out of a printer that has
+stopped reading, what the printer report does and does not disclose, and the versioned store that
+keeps one unreadable record from taking every saved printer with it, and which label text the
+printer's own fonts can carry, the bit order and polarity of the mono raster, and the media
+sensing and darkness commands for both label dialects, the failure messages turned into advice,
+the two permission readings where "unknown" must not be reported as "no", the rule that decides when a socket is
+bound to the local network, and the end-of-stream case that Android 17 turns from an exception
+into a silent -1. CI builds and tests both variants on every push.
 
 **What isn't proven.** Coverage beyond that one printer is thin — that's the real gap, and no
 amount of code review closes it. Office documents need an external converter (a Gotenberg
@@ -228,6 +294,11 @@ their owners' trademarks and are used here only to identify the protocols.
 
 ## Contributing
 
-Printer quirks are the most useful thing you can report. If a printer misbehaves, open an issue
-with its model, the transport, and what came out — `adb logcat -s BluetoothTransport PrintEngine
-PocketPrintService` shows the actual protocol status rather than a generic failure.
+Printer quirks are the most useful thing you can report. If a printer misbehaves, open the
+printer's settings and tap **Copy printer report**, then paste it into an issue along with what
+actually came out of the printer. It carries the dialect, the head width, how much ink the
+rasteriser put on the page and how many bytes reached the printer — which is usually enough to
+tell a rendering bug from a printer that is not marking. Read it before you paste it: it names
+the documents you printed recently. Bluetooth addresses have their device half removed.
+
+`adb logcat -s BluetoothTransport PrintEngine PocketPrintService` shows the same thing live.

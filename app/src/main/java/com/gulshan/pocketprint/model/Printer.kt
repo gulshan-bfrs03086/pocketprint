@@ -130,7 +130,84 @@ data class MediaSize(
         val ALL = PAPER + LABELS
 
         fun byId(id: String?): MediaSize? = ALL.firstOrNull { it.id == id }
+
+        /**
+         * A size the user typed in.
+         *
+         * Five fixed sizes covered the stock this was developed against and
+         * almost nobody else's: 50x30 and 60x40 are the two most common label
+         * rolls on the market and neither was in the list, which made the app
+         * useless to their owners no matter what else worked.
+         *
+         * The id encodes the dimensions so the same stock entered twice is the
+         * same entry, and so a saved printer's media survives a reinstall
+         * without a table of custom sizes to look it up in.
+         */
+        fun custom(widthMm: Float, heightMm: Float): MediaSize = MediaSize(
+            id = "om_custom_${trim(widthMm)}x${trim(heightMm)}mm",
+            label = "${trim(widthMm)} x ${trim(heightMm)} mm",
+            widthMicrons = Math.round(widthMm * 1000f),
+            heightMicrons = Math.round(heightMm * 1000f),
+        )
+
+        private fun trim(mm: Float): String =
+            if (mm == mm.toInt().toFloat()) mm.toInt().toString() else "%.1f".format(mm)
     }
+
+    val isCustom: Boolean get() = id.startsWith("om_custom_")
+}
+
+/** How the printer finds the top of the next label. */
+@Serializable
+enum class MediaSensing {
+    /** The gap between die-cut labels, seen through the liner. */
+    GAP,
+
+    /** A black mark printed on the back of the liner. */
+    BLACK_MARK,
+
+    /** No marks at all: receipt roll, or continuous label stock. */
+    CONTINUOUS,
+}
+
+/**
+ * How a particular printer is loaded, and how hard it burns.
+ *
+ * Belongs to the printer rather than to the job: it describes the roll that is
+ * physically in the machine and the head setting that suits it, neither of
+ * which changes because a different document is being printed.
+ *
+ * Darkness is here because it is the single most common adjustment anyone makes
+ * to one of these printers. A barcode printed too faint scans intermittently or
+ * not at all, and the failure looks like a bad barcode rather than a heat
+ * setting.
+ */
+@Serializable
+data class LabelStock(
+    val sensing: MediaSensing = MediaSensing.GAP,
+
+    /** Height of the gap or the black mark, in mm. Unused when continuous. */
+    val gapMm: Float = 3f,
+
+    /** Extra feed past the mark, in mm. Almost always 0. */
+    val offsetMm: Float = 0f,
+
+    /**
+     * 0 (lightest) to 15 (darkest), which is TSPL's own range.
+     *
+     * ZPL counts to 30, so the value is doubled on the way out. Both ends of
+     * the scale are useful: too light and barcodes will not scan, too dark and
+     * thin bars bleed into each other and also will not scan.
+     */
+    val darkness: Int = 8,
+
+    /** Inches per second. Slower prints darker, and registers more accurately. */
+    val speedIps: Int = 4,
+) {
+    val darknessForTspl: Int get() = darkness.coerceIn(0, 15)
+
+    /** ZPL's darkness runs 0..30 for the same physical range. */
+    val darknessForZpl: Int get() = (darkness.coerceIn(0, 15) * 2).coerceIn(0, 30)
 }
 
 enum class ColorMode { MONOCHROME, COLOR }
@@ -192,6 +269,18 @@ data class Printer(
     /** Surface this printer through Android's system print dialog. */
     val exposeToSystem: Boolean = true,
     val lastSeenEpochMs: Long = 0L,
+    /** How this printer is loaded. Meaningless for a sheet printer. */
+    val stock: LabelStock = LabelStock(),
+    /**
+     * Somebody looked at a test label and said it came out right.
+     *
+     * On a Bluetooth, USB or raw-socket printer this is the only confirmation
+     * that exists anywhere: none of those protocols reports what it did with
+     * the bytes, and a printer will happily accept a job in a dialect it is not
+     * running, feed a blank label, and report no error. So the human eye is the
+     * sensor, and this records what it saw.
+     */
+    val testPrintConfirmed: Boolean = false,
 ) {
     val kind: ConnectionKind get() = address.kind
 

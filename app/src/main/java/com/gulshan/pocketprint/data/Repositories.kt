@@ -2,6 +2,7 @@ package com.gulshan.pocketprint.data
 
 import android.content.Context
 import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.MutablePreferences
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -26,40 +27,64 @@ internal val json = Json {
     prettyPrint = false
 }
 
-/** Printers the user has explicitly saved, persisted as JSON. */
+/**
+ * Preserves a payload this build could not read, instead of writing over it.
+ *
+ * Only the most recent one is kept, which is the one that matters: a second
+ * unreadable payload can only appear after this build has already written a
+ * readable one over the first, and at that point the first is describing a
+ * situation that no longer exists.
+ */
+private fun MutablePreferences.quarantine(key: Preferences.Key<String>, raw: String?) {
+    if (raw != null) this[stringPreferencesKey("${key.name}__unreadable")] = raw
+}
+
+/** Printers the user has explicitly saved, persisted as versioned JSON. */
 class PrinterRepository(private val context: Context) {
 
     private val key = stringPreferencesKey("saved_printers")
+    private val codec = VersionedCodec(Printer.serializer(), VERSION)
+
+    companion object {
+        /**
+         * Bump when the stored shape changes in a way old records need help
+         * with, and give VersionedCodec a migrate function that handles it.
+         * Version 0 is what this app wrote before it stamped anything: a bare
+         * JSON array, which the codec still reads.
+         */
+        private const val VERSION = 1
+    }
 
     val saved: Flow<List<Printer>> = context.dataStore.data.map { prefs ->
-        prefs[key]?.let { raw ->
-            runCatching { json.decodeFromString<List<Printer>>(raw) }.getOrDefault(emptyList())
-        }.orEmpty()
+        codec.decode(prefs[key]).also { StorageHealth.report("printers", it) }.items
     }
 
     suspend fun list(): List<Printer> = saved.first()
 
     suspend fun save(printer: Printer) {
         val entry = printer.copy(saved = true)
-        context.dataStore.edit { prefs ->
-            val current = prefs[key]
-                ?.let { runCatching { json.decodeFromString<List<Printer>>(it) }.getOrNull() }
-                .orEmpty()
-            val merged = current.filterNot { it.id == entry.id } + entry
-            prefs[key] = json.encodeToString(merged)
-        }
+        mutate { it.filterNot { existing -> existing.id == entry.id } + entry }
     }
 
     suspend fun remove(printerId: String) {
-        context.dataStore.edit { prefs ->
-            val current = prefs[key]
-                ?.let { runCatching { json.decodeFromString<List<Printer>>(it) }.getOrNull() }
-                .orEmpty()
-            prefs[key] = json.encodeToString(current.filterNot { it.id == printerId })
-        }
+        mutate { it.filterNot { existing -> existing.id == printerId } }
     }
 
     suspend fun find(printerId: String): Printer? = list().firstOrNull { it.id == printerId }
+
+    /**
+     * Every write goes through here, because a write is where an unreadable
+     * payload used to become a deleted one: the read failed to an empty list,
+     * the new record was merged onto it, and the result was persisted.
+     */
+    private suspend fun mutate(transform: (List<Printer>) -> List<Printer>) {
+        context.dataStore.edit { prefs ->
+            val stored = codec.decode(prefs[key])
+            StorageHealth.report("printers", stored)
+            prefs.quarantine(key, stored.unreadable)
+            prefs[key] = codec.encode(transform(stored.items))
+        }
+    }
 }
 
 /** A bounded history of print jobs. */
@@ -67,28 +92,39 @@ class JobRepository(private val context: Context) {
 
     private val key = stringPreferencesKey("job_history")
     private val limit = 100
+    private val codec = VersionedCodec(PrintJobRecord.serializer(), VERSION)
+
+    companion object {
+        /**
+         * 1 is the first stamped version. JobState gained SENT in this line of
+         * work, which is exactly the kind of change that used to be dangerous:
+         * a record written here and then read by an older build has an enum
+         * constant that build has never heard of.
+         */
+        private const val VERSION = 1
+    }
 
     val history: Flow<List<PrintJobRecord>> = context.dataStore.data.map { prefs ->
-        prefs[key]?.let { raw ->
-            runCatching { json.decodeFromString<List<PrintJobRecord>>(raw) }
-                .getOrDefault(emptyList())
-        }.orEmpty().sortedByDescending { it.createdAtEpochMs }
+        codec.decode(prefs[key])
+            .also { StorageHealth.report("print jobs", it) }
+            .items
+            .sortedByDescending { it.createdAtEpochMs }
     }
 
     suspend fun upsert(record: PrintJobRecord) {
         context.dataStore.edit { prefs ->
-            val current = prefs[key]
-                ?.let { runCatching { json.decodeFromString<List<PrintJobRecord>>(it) }.getOrNull() }
-                .orEmpty()
-            val merged = (listOf(record) + current.filterNot { it.id == record.id })
+            val stored = codec.decode(prefs[key])
+            StorageHealth.report("print jobs", stored)
+            prefs.quarantine(key, stored.unreadable)
+            val merged = (listOf(record) + stored.items.filterNot { it.id == record.id })
                 .sortedByDescending { it.createdAtEpochMs }
                 .take(limit)
-            prefs[key] = json.encodeToString(merged)
+            prefs[key] = codec.encode(merged)
         }
     }
 
     suspend fun clear() {
-        context.dataStore.edit { it[key] = json.encodeToString(emptyList<PrintJobRecord>()) }
+        context.dataStore.edit { it[key] = codec.encode(emptyList()) }
     }
 }
 
@@ -101,6 +137,20 @@ data class AppSettings(
     val defaultColor: Boolean = false,
     val exposeToSystemPrint: Boolean = true,
     val ditherImages: Boolean = true,
+
+    /** The welcome has been shown, so it is not shown again. */
+    val firstRunDone: Boolean = false,
+
+    /**
+     * Whether these permissions have ever actually been put to the user.
+     *
+     * Needed because a permission that has never been asked for looks exactly
+     * like one refused twice - not granted, no rationale to show - and only one
+     * of those two should send somebody to app settings.
+     */
+    val askedForBluetooth: Boolean = false,
+    val askedForNotifications: Boolean = false,
+    val askedForLocalNetwork: Boolean = false,
 ) {
     fun toPrintOptions(): PrintOptions = PrintOptions(
         mediaSize = MediaSize.byId(defaultMediaId) ?: MediaSize.A4,
@@ -115,19 +165,29 @@ class SettingsRepository(private val context: Context) {
     private val key = stringPreferencesKey("app_settings")
 
     val settings: Flow<AppSettings> = context.dataStore.data.map { prefs ->
-        prefs[key]?.let { raw ->
-            runCatching { json.decodeFromString<AppSettings>(raw) }.getOrNull()
-        } ?: AppSettings()
+        decode(prefs[key])
     }
 
     suspend fun current(): AppSettings = settings.first()
 
     suspend fun update(transform: (AppSettings) -> AppSettings) {
         context.dataStore.edit { prefs ->
-            val current = prefs[key]
-                ?.let { runCatching { json.decodeFromString<AppSettings>(it) }.getOrNull() }
-                ?: AppSettings()
+            val raw = prefs[key]
+            val current = decode(raw)
+            // Quarantined for the same reason as the lists, though the stakes
+            // are lower: settings is a single object whose every field has a
+            // default, so there is no partial salvage to attempt and the blast
+            // radius of losing it is one screen of preferences rather than
+            // every printer the user has ever set up. Hence no version envelope
+            // here either.
+            if (raw != null && current == AppSettings() && raw != json.encodeToString(current)) {
+                prefs.quarantine(key, raw)
+            }
             prefs[key] = json.encodeToString(transform(current))
         }
     }
+
+    private fun decode(raw: String?): AppSettings =
+        raw?.let { runCatching { json.decodeFromString<AppSettings>(it) }.getOrNull() }
+            ?: AppSettings()
 }

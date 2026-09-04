@@ -1,5 +1,6 @@
 package com.gulshan.pocketprint
 
+import android.content.ContentResolver
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -7,20 +8,35 @@ import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.gulshan.pocketprint.render.DocumentTooLarge
+import com.gulshan.pocketprint.render.RenderPipeline
+import com.gulshan.pocketprint.render.Spool
 import com.gulshan.pocketprint.ui.AppNav
 import com.gulshan.pocketprint.ui.theme.PocketPrintTheme
 import com.gulshan.pocketprint.ui.vm.PrintersViewModel
+import kotlinx.coroutines.TimeoutCancellationException
 
 /**
  * Receives files, text and URLs shared from other apps, so "Share -> Print with
  * PocketPrint" works from anywhere without going through the system dialog.
+ *
+ * This is the app's only exported entry point that takes data, and it is
+ * exported to everything on the device. The manifest filter decides what the
+ * share sheet *offers*, which is not the same as what can arrive: any app can
+ * start an exported activity with an explicit intent carrying whatever it
+ * likes. So the checks live here rather than in the filter, and everything
+ * that arrives is treated as hostile until it has passed them.
  */
 class ShareTargetActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // The share target drew under the status bar's colour rather than
+        // through it, so arriving here from another app was a visible seam.
+        enableEdgeToEdge()
 
         setContent {
             PocketPrintTheme {
@@ -31,24 +47,18 @@ class ShareTargetActivity : ComponentActivity() {
         }
     }
 
-    private fun handleIntent(intent: Intent?, viewModel: PrintersViewModel) {
+    private suspend fun handleIntent(intent: Intent?, viewModel: PrintersViewModel) {
         if (intent == null) return
 
         when (intent.action) {
             Intent.ACTION_SEND -> {
                 val uri = intent.parcelableExtra<Uri>(Intent.EXTRA_STREAM)
                 if (uri != null) {
-                    // Persist read access, since the grant dies with this Activity.
-                    runCatching {
-                        contentResolver.takePersistableUriPermission(
-                            uri, Intent.FLAG_GRANT_READ_URI_PERMISSION,
-                        )
-                    }
-                    viewModel.selectSharedDocument(uri)
+                    accept(uri, viewModel)
                     return
                 }
                 intent.getStringExtra(Intent.EXTRA_TEXT)?.let { shared ->
-                    viewModel.setSharedText(shared, intent.getStringExtra(Intent.EXTRA_SUBJECT))
+                    acceptText(shared, intent.getStringExtra(Intent.EXTRA_SUBJECT), viewModel)
                 }
             }
 
@@ -56,20 +66,98 @@ class ShareTargetActivity : ComponentActivity() {
                 // Multi-document printing is not implemented; take the first and
                 // say so rather than silently dropping the rest.
                 val uris = intent.parcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM)
-                uris?.firstOrNull()?.let { viewModel.selectSharedDocument(it) }
                 if ((uris?.size ?: 0) > 1) {
-                    Toast.makeText(
-                        this,
-                        "PocketPrint prints one document at a time; using the first of " +
-                            "${uris?.size} shared files.",
-                        Toast.LENGTH_LONG,
-                    ).show()
+                    toast(getString(R.string.share_multiple, uris?.size ?: 0))
                 }
+                uris?.firstOrNull()?.let { accept(it, viewModel) }
             }
 
-            Intent.ACTION_VIEW -> intent.data?.let { viewModel.selectDocument(it) }
+            Intent.ACTION_VIEW -> intent.data?.let { accept(it, viewModel) }
         }
     }
+
+    /**
+     * Takes a shared document if it passes every check, and says why if it does
+     * not.
+     *
+     * The copy happens now, not at print time, for two reasons. The read grant
+     * on a shared URI is scoped to this Activity and is gone by the time the
+     * print service opens it; and holding the bytes ourselves means the sending
+     * app cannot swap the contents between the check and the print.
+     */
+    private suspend fun accept(uri: Uri, viewModel: PrintersViewModel) {
+        if (uri.scheme != ContentResolver.SCHEME_CONTENT) {
+            // A file:// URI is a caller asking us to read a path of its
+            // choosing with our own identity. Sharing apps have not been
+            // allowed to send one since API 24 in any case.
+            toast(getString(R.string.share_not_a_file))
+            return
+        }
+
+        val described = try {
+            Spool.describe(this, uri)
+        } catch (failure: Exception) {
+            toast(getString(R.string.share_unreadable, failure.message.orEmpty()))
+            return
+        }
+
+        if (!RenderPipeline.canRender(described.mimeType, described.extension)) {
+            toast(
+                getString(
+                    R.string.share_cannot_print, described.displayName, described.mimeType,
+                ),
+            )
+            return
+        }
+
+        val local = try {
+            val suffix = described.extension.takeIf { it.isNotBlank() }?.let { ".$it" } ?: ".bin"
+            Spool.copyToCache(this, uri, suffix)
+        } catch (tooBig: DocumentTooLarge) {
+            toast(
+                getString(
+                    R.string.share_too_large,
+                    described.displayName,
+                    (Spool.MAX_DOCUMENT_BYTES / (1024 * 1024)).toInt(),
+                ),
+            )
+            return
+        } catch (timeout: TimeoutCancellationException) {
+            toast(getString(R.string.share_too_slow, described.displayName))
+            return
+        } catch (failure: Exception) {
+            toast(getString(R.string.share_unreadable, failure.message.orEmpty()))
+            return
+        }
+
+        viewModel.setDocument(
+            described.copy(
+                uri = Uri.fromFile(local).toString(),
+                sizeBytes = local.length(),
+            ),
+        )
+    }
+
+    /**
+     * Shared text is bounded too. A megabyte of plain text is a five-figure
+     * page count, which is a printer jammed for an afternoon rather than a
+     * document, so take the front of it and say that is what happened.
+     */
+    private suspend fun acceptText(
+        text: String,
+        subject: String?,
+        viewModel: PrintersViewModel,
+    ) {
+        if (text.length > MAX_SHARED_TEXT_CHARS) {
+            toast(getString(R.string.share_text_truncated, MAX_SHARED_TEXT_CHARS))
+        }
+        viewModel.setSharedText(text.take(MAX_SHARED_TEXT_CHARS), subject)
+    }
+
+    // Every caller is already on the main thread: handleIntent runs in the
+    // composition's scope, and the suspending work below it returns there.
+    private fun toast(message: String) =
+        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
 
     // getParcelableExtra without a class argument is deprecated from API 33.
     private inline fun <reified T : android.os.Parcelable> Intent.parcelableExtra(
@@ -86,5 +174,10 @@ class ShareTargetActivity : ComponentActivity() {
         getParcelableArrayListExtra(name, T::class.java)
     } else {
         @Suppress("DEPRECATION") getParcelableArrayListExtra(name)
+    }
+
+    private companion object {
+        /** Roughly a hundred pages of dense text. */
+        const val MAX_SHARED_TEXT_CHARS = 200_000
     }
 }

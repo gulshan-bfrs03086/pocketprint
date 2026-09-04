@@ -2,6 +2,7 @@ package com.gulshan.pocketprint.print
 
 import android.content.Context
 import android.util.Log
+import com.gulshan.pocketprint.R
 import com.gulshan.pocketprint.label.EscPos
 import com.gulshan.pocketprint.label.Tspl
 import com.gulshan.pocketprint.label.Zpl
@@ -25,6 +26,27 @@ data class SetupStep(
     val state: StepState = StepState.PENDING,
     val detail: String? = null,
 )
+
+/**
+ * What the person holding the printer saw after the test label.
+ *
+ * The three answers point at three different faults, and telling them apart is
+ * the whole value of asking. Nothing at all is almost always the media - a
+ * thermal printer marks only heat-sensitive stock, on one side, and reports
+ * paper loaded and no error while feeding a blank label. Readable command text
+ * or stray characters is the dialect. A correct label is the only confirmation
+ * these transports can ever produce.
+ */
+enum class TestLabelOutcome {
+    /** The label came out and looks right. */
+    CORRECT,
+
+    /** Something printed, but it is command text or garbage. */
+    GARBLED,
+
+    /** The label fed through blank, or nothing happened at all. */
+    NOTHING,
+}
 
 data class SetupProgress(
     val steps: List<SetupStep>,
@@ -73,18 +95,20 @@ class PrinterAutoSetup(private val context: Context) {
         private const val STEP_CONNECT = "connect"
         private const val STEP_DETECT = "detect"
         private const val STEP_CONFIGURE = "configure"
-        private const val STEP_TEST = "test"
         private const val STEP_SAVE = "save"
+
+        /** Public because the UI only asks "did it print?" if this step ran. */
+        const val STEP_TEST = "test"
 
         private const val ASSUMED_DPI = 203
     }
 
     private fun initialSteps() = listOf(
-        SetupStep(STEP_CONNECT, "Pair and connect"),
-        SetupStep(STEP_DETECT, "Ask the printer what it speaks"),
-        SetupStep(STEP_CONFIGURE, "Work out label size and head width"),
-        SetupStep(STEP_TEST, "Print a test label"),
-        SetupStep(STEP_SAVE, "Save and offer to Android"),
+        SetupStep(STEP_CONNECT, context.getString(R.string.setup_step_connect)),
+        SetupStep(STEP_DETECT, context.getString(R.string.setup_step_detect)),
+        SetupStep(STEP_CONFIGURE, context.getString(R.string.setup_step_configure)),
+        SetupStep(STEP_TEST, context.getString(R.string.setup_step_test)),
+        SetupStep(STEP_SAVE, context.getString(R.string.setup_step_save)),
     )
 
     /**
@@ -148,19 +172,41 @@ class PrinterAutoSetup(private val context: Context) {
             mark(STEP_DETECT, StepState.RUNNING)
             push()
 
-            val detected = runCatching { detectLanguage(open) }
-                .onFailure { Log.w(TAG, "probe failed", it) }
-                .getOrNull()
+            val probe = runCatching { detectLanguage(open) }
+
+            // A probe that threw means the connection went away, not that the
+            // printer stayed quiet. Those are one signal apart and worlds apart
+            // in meaning: silence is how a dialect is ruled out, so reporting a
+            // dead socket as "no reply, so TSPL assumed from the name" would be
+            // a confident statement about the printer derived from the
+            // connection dying. Better to say the connection died.
+            val probeFailure = probe.exceptionOrNull()
+            if (probeFailure is kotlinx.coroutines.CancellationException) throw probeFailure
+            if (probeFailure != null) {
+                Log.w(TAG, "probe failed", probeFailure)
+                mark(STEP_DETECT, StepState.FAILED, probeFailure.message)
+                skipRest(STEP_DETECT)
+                push(finished = true, error = probeFailure.message)
+                return@flow
+            }
+
+            val detected = probe.getOrNull()
 
             val language = detected?.language ?: guessFromName(printer.displayName)
             mark(
                 STEP_DETECT,
                 StepState.DONE,
                 if (detected != null) {
-                    "${label(language)} confirmed by the printer" +
-                        (detected.model?.let { " ($it)" } ?: "")
+                    val model = detected.model
+                    if (model == null) {
+                        context.getString(R.string.setup_detect_confirmed, label(language))
+                    } else {
+                        context.getString(
+                            R.string.setup_detect_confirmed_model, label(language), model,
+                        )
+                    }
                 } else {
-                    "No reply, so ${label(language)} assumed from the name"
+                    context.getString(R.string.setup_detect_assumed, label(language))
                 },
             )
             push()
@@ -191,7 +237,9 @@ class PrinterAutoSetup(private val context: Context) {
             mark(
                 STEP_CONFIGURE,
                 StepState.DONE,
-                "${media.label}, $ASSUMED_DPI dpi, $widthDots dots wide",
+                context.getString(
+                    R.string.setup_configured, media.label, ASSUMED_DPI, widthDots,
+                ),
             )
             push()
 
@@ -203,7 +251,7 @@ class PrinterAutoSetup(private val context: Context) {
                     // Explicit, rather than relying on the flow emissions below
                     // to happen to delay the close long enough.
                     open.finish()
-                    mark(STEP_TEST, StepState.DONE, "Sent to the printer")
+                    mark(STEP_TEST, StepState.DONE, context.getString(R.string.setup_test_sent))
                 } catch (t: Throwable) {
                     // A failed test page is worth reporting but does not
                     // invalidate the configuration we just worked out.
@@ -216,7 +264,7 @@ class PrinterAutoSetup(private val context: Context) {
 
             mark(STEP_SAVE, StepState.RUNNING)
             push()
-            mark(STEP_SAVE, StepState.DONE, "Now offered in every app's print dialog")
+            mark(STEP_SAVE, StepState.DONE, context.getString(R.string.setup_saved))
             push(finished = true, result = configured)
         } finally {
             runCatching { open.close() }
@@ -254,7 +302,7 @@ class PrinterAutoSetup(private val context: Context) {
         transport.write(PROBE_TSPL_STATUS)
         if (transport.readAvailable(STATUS_WAIT_MS).isNotEmpty()) {
             val model = identify(transport, PROBE_TSPL)
-            Log.i(TAG, "TSPL interpreter is live (model=$model)")
+            Diagnostics.record(TAG, "TSPL status answered; interpreter is live (model=$model)")
             return Detection(PrintLanguage.TSPL, model)
         }
 
@@ -262,22 +310,22 @@ class PrinterAutoSetup(private val context: Context) {
         if (transport.readAvailable(STATUS_WAIT_MS).any { it == STX }) {
             // ~HI answers "model,version,dpm,memory"; keep the model only.
             val model = identify(transport, PROBE_ZPL)?.substringBefore(',')
-            Log.i(TAG, "ZPL interpreter is live (model=$model)")
+            Diagnostics.record(TAG, "ZPL status answered; interpreter is live (model=$model)")
             return Detection(PrintLanguage.ZPL, model)
         }
 
         // Neither status command answered. Fall back to identification, which
         // at least proves the printer understands one of the two families.
         identify(transport, PROBE_TSPL)?.let {
-            Log.i(TAG, "no status reply; TSPL identified: $it")
+            Diagnostics.record(TAG, "no status reply from either; TSPL identified itself as $it")
             return Detection(PrintLanguage.TSPL, it)
         }
         identify(transport, PROBE_ZPL)?.let {
-            Log.i(TAG, "no status reply; ZPL identified: $it")
+            Diagnostics.record(TAG, "no status reply from either; ZPL identified itself as $it")
             return Detection(PrintLanguage.ZPL, it.substringBefore(','))
         }
 
-        Log.i(TAG, "no reply to any probe")
+        Diagnostics.record(TAG, "no reply to any probe; falling back to the device name")
         return null
     }
 

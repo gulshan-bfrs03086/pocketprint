@@ -40,11 +40,37 @@ interface PrinterTransport : Closeable {
     suspend fun finish()
 
     /**
-     * Reads whatever the printer volunteers within the timeout. Thermal printers
-     * use this for status bytes; most page printers stay silent, so an empty
-     * array is a normal result rather than an error.
+     * Reads whatever the printer volunteers within the timeout.
+     *
+     * An empty array means the printer said nothing, which is a normal result:
+     * most page printers never do. A connection that has gone away is not that,
+     * and must throw rather than come back empty — the difference decides
+     * whether silence gets read as an answer.
+     *
+     * That distinction is about to stop being free. Up to targetSdk 36 a
+     * dropped socket throws IOException here; from 37 read() returns -1
+     * instead, so a loop that only checks for a positive count spins out its
+     * timeout and reports the same empty array a working, quiet printer would.
+     * Language detection is built on exactly that inference — silence to the
+     * TSPL status command is what rules TSPL out — so a dropped connection
+     * would come back as a confident answer about the printer's dialect.
      */
     suspend fun readAvailable(timeoutMs: Long = 400): ByteArray = ByteArray(0)
 }
 
+/**
+ * A transport failure, described in the transport's own terms.
+ *
+ * These messages are deliberately not translated, and that is a boundary rather
+ * than an omission. What a transport knows is technical - a socket that closed,
+ * an endpoint that would not open - and that text is what ends up in a printer
+ * report pasted into an English issue, where it has to stay readable to whoever
+ * is reading the report.
+ *
+ * Turning it into something a person can act on is JobError's job, and that is
+ * translated. So a recognised failure reaches the user as a localised sentence
+ * with the technical message underneath, and an unrecognised one reaches them
+ * as the technical message alone rather than as a vaguer sentence that happens
+ * to be in their language.
+ */
 class TransportException(message: String, cause: Throwable? = null) : Exception(message, cause)

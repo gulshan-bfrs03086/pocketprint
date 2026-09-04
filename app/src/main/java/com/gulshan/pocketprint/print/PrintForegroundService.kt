@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
+import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.gulshan.pocketprint.MainActivity
@@ -22,15 +23,18 @@ import com.gulshan.pocketprint.model.PrintResult
 import com.gulshan.pocketprint.model.SourceDocument
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -47,6 +51,26 @@ class PrintForegroundService : Service() {
         private const val EXTRA_OPTIONS = "options"
         private const val NOTIFICATION_ID = 4711
         private const val RESULT_NOTIFICATION_ID = 4712
+
+        private const val ACTION_CANCEL = "com.gulshan.pocketprint.action.CANCEL_PRINT_JOB"
+        private const val EXTRA_CANCEL_ID = "cancel_job_id"
+
+        /**
+         * Asks the service to stop a job.
+         *
+         * startService rather than startForegroundService on purpose: this is
+         * only meaningful while a job is running, which means the service is
+         * already in the foreground, and starting an idle service from the
+         * background would be refused anyway. If nothing is running the service
+         * winds itself straight back down.
+         */
+        fun requestCancel(context: Context, jobId: String? = null) {
+            val intent = Intent(context, PrintForegroundService::class.java).apply {
+                action = ACTION_CANCEL
+                putExtra(EXTRA_CANCEL_ID, jobId)
+            }
+            runCatching { context.startService(intent) }
+        }
 
         fun start(
             context: Context,
@@ -70,22 +94,49 @@ class PrintForegroundService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     /**
-     * Jobs run one at a time. A thermal printer holds a single RFCOMM slot, so
-     * a second job would fail to connect anyway while the first is still
-     * draining, and Android delivers every start on the same service instance.
+     * Jobs from this service run one at a time.
+     *
+     * Not for the printer's sake any more - PrinterQueue owns that, and owns it
+     * for every path rather than just this one. This lock is now about the
+     * notification: there is a single foreground notification slot, and two
+     * concurrent jobs would take turns overwriting each other's progress in it.
      */
     private val queue = Mutex()
     private val inFlight = AtomicInteger(0)
+
+    /** Live jobs, so a cancel request can find the one it is asking about. */
+    private val running = ConcurrentHashMap<String, Job>()
+
+    /** Which job the ongoing notification is currently describing. */
+    @Volatile
+    private var notifiedJobId: String? = null
 
     @Volatile
     private var latestStartId = 0
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Updated for a cancel too: stopSelf(id) is ignored unless the id is the
+        // most recent one, so a finishing job must quote the newest.
         latestStartId = startId
+
+        if (intent?.action == ACTION_CANCEL) {
+            cancelJob(intent.getStringExtra(EXTRA_CANCEL_ID))
+            // Not a job, so it takes no foreground slot. Cancelling the last
+            // job leaves the service with nothing to do.
+            stopIfIdle()
+            return START_NOT_STICKY
+        }
 
         // Must happen within ~5 s of startForegroundService, before any parsing
         // that might bail out.
-        startForeground(NOTIFICATION_ID, buildNotification("Print job", "Preparing", 0))
+        startForeground(
+            NOTIFICATION_ID,
+            buildNotification(
+                getString(R.string.notification_job),
+                getString(R.string.notification_preparing),
+                0,
+            ),
+        )
 
         val printerId = intent?.getStringExtra(EXTRA_PRINTER_ID)
         val documentRaw = intent?.getStringExtra(EXTRA_DOCUMENT)
@@ -103,17 +154,38 @@ class PrintForegroundService : Service() {
             return START_NOT_STICKY
         }
 
+        // Minted here rather than inside runJob so the notification's cancel
+        // action and the Jobs screen can both name this exact job.
+        val jobId = UUID.randomUUID().toString()
+
         inFlight.incrementAndGet()
-        scope.launch {
+        val job = scope.launch {
             try {
-                queue.withLock { runJob(printerId, document, options) }
+                queue.withLock { runJob(jobId, printerId, document, options) }
             } finally {
                 // Runs even on cancellation, so the service always winds down.
+                running.remove(jobId)
+                if (notifiedJobId == jobId) notifiedJobId = null
                 if (inFlight.decrementAndGet() == 0) stopSelf(latestStartId)
             }
         }
+        running[jobId] = job
 
         return START_NOT_STICKY
+    }
+
+    /**
+     * Cancelling the coroutine is only half of it. A write blocked in a syscall
+     * ignores cancellation entirely; the stall guard around the transport is
+     * what closes the socket and lets the thread out, and it does that because
+     * this cancellation reaches it.
+     */
+    private fun cancelJob(jobId: String?) {
+        if (jobId == null) {
+            running.values.forEach { it.cancel() }
+        } else {
+            running[jobId]?.cancel()
+        }
     }
 
     /** stopSelf(id) is a no-op once a newer start has arrived, which is the point. */
@@ -122,6 +194,7 @@ class PrintForegroundService : Service() {
     }
 
     private suspend fun runJob(
+        jobId: String,
         printerId: String,
         document: SourceDocument,
         options: PrintOptions,
@@ -130,26 +203,65 @@ class PrintForegroundService : Service() {
         val jobs = ServiceLocator.jobRepository(applicationContext)
         val printer = repository.find(printerId)
 
-        val jobId = UUID.randomUUID().toString()
         val startedAt = System.currentTimeMillis()
+        notifiedJobId = jobId
 
         if (printer == null) {
             jobs.upsert(
                 PrintJobRecord(
-                    jobId, printerId, "Unknown printer", document.displayName,
+                    jobId, printerId, getString(R.string.notification_unknown_printer),
+                    document.displayName,
                     JobState.FAILED, startedAt, System.currentTimeMillis(),
-                    error = "Printer not found",
+                    error = getString(R.string.notification_printer_not_found),
+                    documentUri = document.uri,
+                    documentMimeType = document.mimeType,
+                    options = options,
                 ),
             )
-            notify(document.displayName, "Printer not found", 0, ongoing = false)
+            notify(
+                document.displayName,
+                getString(R.string.notification_printer_not_found),
+                0,
+                ongoing = false,
+            )
             return
         }
 
-        jobs.upsert(
-            PrintJobRecord(
-                jobId, printer.id, printer.displayName, document.displayName,
-                JobState.SENDING, startedAt,
-            ),
+        // Everything needed to run this again goes in from the start, so a job
+        // that fails half way is as repeatable as one that finishes.
+        fun record(
+            state: JobState,
+            finishedAt: Long? = null,
+            bytesSent: Long = 0,
+            error: String? = null,
+            note: String? = null,
+        ) = PrintJobRecord(
+            id = jobId,
+            printerId = printer.id,
+            printerName = printer.displayName,
+            documentName = document.displayName,
+            state = state,
+            createdAtEpochMs = startedAt,
+            finishedAtEpochMs = finishedAt,
+            bytesSent = bytesSent,
+            error = error,
+            note = note,
+            documentUri = document.uri,
+            documentMimeType = document.mimeType,
+            options = options,
+        )
+
+        jobs.upsert(record(JobState.SENDING))
+
+        // Post before the first byte moves, because opening the connection is
+        // itself something that can hang - a Bluetooth printer that is switched
+        // off, most obviously - and this is the notification that carries the
+        // Cancel action. Waiting for onProgress would leave exactly the case
+        // that most needs cancelling without a way to cancel it.
+        notify(
+            document.displayName,
+            getString(R.string.notification_connecting, printer.displayName),
+            0,
         )
 
         val result = try {
@@ -157,46 +269,108 @@ class PrintForegroundService : Service() {
                 printer = printer,
                 source = document,
                 options = options,
-            ) { sent, total ->
-                val percent = if (total > 0) (sent * 100 / total).toInt() else 0
-                notifyProgress(document.displayName, "Sending to ${printer.displayName}", percent)
-            }
+                listener = JobListener(
+                    onProgress = { sent, total ->
+                        val percent = if (total > 0) (sent * 100 / total).toInt() else 0
+                        notifyProgress(
+                            document.displayName,
+                            getString(R.string.notification_sending, printer.displayName),
+                            percent,
+                        )
+                    },
+                    // Only IPP ever reports back, and when it does the wait can
+                    // be long. "processing - media empty error" beats a progress
+                    // bar sitting at 100% for two minutes.
+                    onStatus = { status ->
+                        notify(
+                            document.displayName,
+                            getString(
+                                R.string.notification_printer_status,
+                                printer.displayName,
+                                status,
+                            ),
+                            100,
+                        )
+                    },
+                ),
+            )
         } catch (cancel: CancellationException) {
             // The history row must not be left stranded at SENDING. Written
             // outside the cancelled scope, or the upsert would itself be
             // cancelled at its first suspension point.
             withContext(NonCancellable) {
                 jobs.upsert(
-                    PrintJobRecord(
-                        jobId, printer.id, printer.displayName, document.displayName,
-                        JobState.CANCELLED, startedAt, System.currentTimeMillis(),
-                        error = "Cancelled before the job finished",
+                    record(
+                        JobState.CANCELLED,
+                        finishedAt = System.currentTimeMillis(),
+                        error = getString(R.string.job_cancelled),
                     ),
                 )
             }
             throw cancel
         }
 
-        val record = when (result) {
-            is PrintResult.Success -> PrintJobRecord(
-                jobId, printer.id, printer.displayName, document.displayName,
-                JobState.COMPLETED, startedAt, System.currentTimeMillis(),
-                bytesSent = result.bytesSent,
-            )
-            is PrintResult.Failure -> PrintJobRecord(
-                jobId, printer.id, printer.displayName, document.displayName,
-                JobState.FAILED, startedAt, System.currentTimeMillis(),
-                error = result.message,
-            )
-        }
-        jobs.upsert(record)
+        val finishedAt = System.currentTimeMillis()
+        jobs.upsert(
+            when (result) {
+                // Only this branch is allowed to say COMPLETED, and only an IPP
+                // printer reporting job-state=completed can reach it.
+                is PrintResult.Completed ->
+                    record(JobState.COMPLETED, finishedAt, bytesSent = result.bytesSent)
+                is PrintResult.Sent -> record(
+                    JobState.SENT, finishedAt,
+                    bytesSent = result.bytesSent, note = result.reason,
+                )
+                is PrintResult.Failure ->
+                    record(JobState.FAILED, finishedAt, error = result.message)
+            },
+        )
 
         val summary = when (result) {
-            is PrintResult.Success -> "Sent to ${printer.displayName}"
+            is PrintResult.Completed ->
+                getString(R.string.notification_printed, printer.displayName)
+            is PrintResult.Sent ->
+                getString(R.string.notification_sent_unconfirmed, printer.displayName)
             is PrintResult.Failure -> result.message
         }
-        notify(document.displayName, summary, 100, ongoing = false)
+        // The reason a job cannot be confirmed is the actionable part, so it
+        // goes in the expanded notification rather than being dropped.
+        val detail = when (result) {
+            is PrintResult.Sent -> result.reason
+            else -> null
+        }
+        notify(document.displayName, summary, 100, ongoing = false, detail = detail)
     }
+
+    /**
+     * A foreground service the system decides has run too long is given a
+     * timeout callback, and an app that does not implement it is ANRed. The
+     * connectedDevice type this service declares is not one of the capped types
+     * today, so this is a backstop rather than a routine path - but the cost of
+     * not having it is the whole app dying mid-transfer with the progress
+     * notification still on screen, saying nothing.
+     *
+     * Cancelling the job takes the CancellationException path in runJob, so the
+     * history row lands on CANCELLED instead of being stranded at SENDING.
+     */
+    private fun windDownAfterSystemTimeout() {
+        scope.coroutineContext.cancelChildren()
+        notify(
+            getString(R.string.notification_stopped_title),
+            getString(R.string.notification_stopped_body),
+            0,
+            ongoing = false,
+        )
+        stopSelf()
+    }
+
+    /** Android 15 calls this one. */
+    @RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
+    override fun onTimeout(startId: Int) = windDownAfterSystemTimeout()
+
+    /** Android 16 calls this one instead, so both have to be here. */
+    @RequiresApi(Build.VERSION_CODES.BAKLAVA)
+    override fun onTimeout(startId: Int, fgsType: Int) = windDownAfterSystemTimeout()
 
     override fun onDestroy() {
         scope.cancel()
@@ -208,6 +382,7 @@ class PrintForegroundService : Service() {
         text: String,
         progress: Int,
         ongoing: Boolean = true,
+        detail: String? = null,
     ): Notification {
         val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
@@ -225,18 +400,53 @@ class PrintForegroundService : Service() {
             .setContentIntent(content)
             .setOngoing(ongoing)
             .setOnlyAlertOnce(true)
-            .apply { if (ongoing) setProgress(100, progress, progress <= 0) }
+            .apply {
+                // The only way out of a job that has gone wrong used to be
+                // force-stopping the app, and this notification is the one
+                // thing on screen while a job runs.
+                val cancellable = notifiedJobId
+                if (ongoing && cancellable != null) {
+                    addAction(
+                        android.R.drawable.ic_menu_close_clear_cancel,
+                        getString(R.string.action_cancel),
+                        PendingIntent.getService(
+                            this@PrintForegroundService,
+                            cancellable.hashCode(),
+                            Intent(
+                                this@PrintForegroundService,
+                                PrintForegroundService::class.java,
+                            ).apply {
+                                action = ACTION_CANCEL
+                                putExtra(EXTRA_CANCEL_ID, cancellable)
+                            },
+                            flags,
+                        ),
+                    )
+                }
+            }
+            .apply {
+                if (ongoing) setProgress(100, progress, progress <= 0)
+                if (detail != null) {
+                    setStyle(NotificationCompat.BigTextStyle().bigText("$text\n\n$detail"))
+                }
+            }
             .build()
     }
 
-    private fun notify(title: String, text: String, progress: Int, ongoing: Boolean = true) {
+    private fun notify(
+        title: String,
+        text: String,
+        progress: Int,
+        ongoing: Boolean = true,
+        detail: String? = null,
+    ) {
         runCatching {
             // The terminal notification needs its own id: the foreground one is
             // torn down with the service, which would erase the outcome.
             val id = if (ongoing) NOTIFICATION_ID else RESULT_NOTIFICATION_ID
             if (!ongoing) detachForegroundNotification()
             NotificationManagerCompat.from(this)
-                .notify(id, buildNotification(title, text, progress, ongoing))
+                .notify(id, buildNotification(title, text, progress, ongoing, detail))
         }
     }
 

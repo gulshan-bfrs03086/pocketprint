@@ -24,15 +24,23 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import com.gulshan.pocketprint.R
 import com.gulshan.pocketprint.model.MediaSize
 import com.gulshan.pocketprint.model.Printer
+import com.gulshan.pocketprint.print.PrinterAutoSetup
 import com.gulshan.pocketprint.print.SetupProgress
 import com.gulshan.pocketprint.print.StepState
+import com.gulshan.pocketprint.print.TestLabelOutcome
 
 /**
  * The entry point for one-tap setup. Deliberately prominent: for a thermal
@@ -55,20 +63,18 @@ fun AutoSetupCard(
     ) {
         Column(Modifier.padding(16.dp)) {
             Text(
-                "Set up a label or receipt printer",
+                stringResource(R.string.setup_card_title),
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onPrimaryContainer,
             )
             Text(
-                "Pairs, connects, asks the printer which command language it " +
-                    "speaks, configures the label size, prints a test label, and " +
-                    "adds it to Android's print dialog.",
+                stringResource(R.string.setup_card_body),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onPrimaryContainer,
                 modifier = Modifier.padding(top = 4.dp),
             )
             Text(
-                "Label stock loaded in the printer",
+                stringResource(R.string.setup_stock_label),
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onPrimaryContainer,
                 modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
@@ -80,9 +86,7 @@ fun AutoSetupCard(
                 onSelect = onStockChange,
             )
             Text(
-                "This has to match the labels actually loaded. Set it too long and " +
-                    "the printer feeds forward looking for a gap that is not there, " +
-                    "then stops with a paper fault.",
+                stringResource(R.string.setup_stock_warning),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onPrimaryContainer,
                 modifier = Modifier.padding(top = 6.dp),
@@ -91,7 +95,15 @@ fun AutoSetupCard(
                 onClick = onStart,
                 modifier = Modifier.padding(top = 12.dp),
             ) {
-                Text(if (candidateCount == 1) "Set up my printer" else "Set up a printer")
+                Text(
+                    stringResource(
+                        if (candidateCount == 1) {
+                            R.string.setup_start_one
+                        } else {
+                            R.string.setup_start_many
+                        },
+                    ),
+                )
             }
         }
     }
@@ -103,17 +115,24 @@ fun AutoSetupPicker(
     candidates: List<Printer>,
     onDismiss: () -> Unit,
     onPick: (Printer) -> Unit,
+    /** Null on a device with no companion device picker. */
+    onPairNew: (() -> Unit)?,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Which printer?") },
+        title = { Text(stringResource(R.string.setup_picker_title)) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 if (candidates.isEmpty()) {
                     Text(
-                        "No paired Bluetooth printers found. Pair the printer in " +
-                            "Android Settings first — the PIN is usually 0000 — then " +
-                            "come back and try again.",
+                        stringResource(
+                            if (onPairNew != null) {
+                                R.string.setup_picker_empty
+                            } else {
+                                // The old route, still the only one on Android 7.
+                                R.string.setup_picker_empty_legacy
+                            },
+                        ),
                         style = MaterialTheme.typography.bodyMedium,
                     )
                 }
@@ -134,8 +153,18 @@ fun AutoSetupPicker(
                 }
             }
         },
-        confirmButton = {},
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        confirmButton = {
+            // Where this used to send people to Android Settings to hunt
+            // through a list of MAC addresses, it now opens the system's own
+            // picker - which scans, shows the devices, and pairs, without this
+            // app holding a scan permission or knowing what is nearby.
+            if (onPairNew != null) {
+                TextButton(onClick = onPairNew) { Text(stringResource(R.string.setup_pair_new)) }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) }
+        },
     )
 }
 
@@ -144,18 +173,27 @@ fun AutoSetupPicker(
 fun AutoSetupDialog(
     progress: SetupProgress,
     onDismiss: () -> Unit,
+    onOutcome: (TestLabelOutcome) -> Unit,
+    alternateDialect: String?,
+    onRetestOtherDialect: () -> Unit,
 ) {
     val succeeded = progress.finished && progress.error == null
+    val printedTest = progress.steps.any {
+        it.id == PrinterAutoSetup.STEP_TEST && it.state == StepState.DONE
+    }
+    var answer by remember(progress.printer?.id) { mutableStateOf<TestLabelOutcome?>(null) }
 
     AlertDialog(
         onDismissRequest = { if (progress.finished) onDismiss() },
         title = {
             Text(
-                when {
-                    !progress.finished -> "Setting up..."
-                    succeeded -> "Ready to print"
-                    else -> "Setup failed"
-                },
+                stringResource(
+                    when {
+                        !progress.finished -> R.string.setup_running
+                        succeeded -> R.string.setup_ready
+                        else -> R.string.setup_failed
+                    },
+                ),
             )
         },
         text = {
@@ -196,47 +234,126 @@ fun AutoSetupDialog(
                     }
                 }
 
-                if (succeeded) {
-                    // These two symptoms have different causes, and saying only
-                    // "change the language" for both sends people hunting through
-                    // dialects when the real answer is usually the paper. A
-                    // printer cannot detect the wrong stock: it reports paper
-                    // loaded and head down, and feeds a blank label quite happily.
-                    Text(
-                        "Nothing on the label, but it fed through?",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.padding(top = 8.dp),
-                    )
-                    Text(
-                        "That is the paper, not the printing. Thermal printers " +
-                            "mark only heat-sensitive stock, on one side. Check you " +
-                            "are using thermal labels and that the roll is not in " +
-                            "upside down. The printer cannot tell, so it reports " +
-                            "everything as fine.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Text(
-                        "Stray characters or pages of commands instead?",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.padding(top = 8.dp),
-                    )
-                    Text(
-                        "That one is the command language. Open the printer's " +
-                            "settings and change it.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                if (succeeded && printedTest) {
+                    TestLabelQuestion(
+                        answer = answer,
+                        alternateDialect = alternateDialect,
+                        onAnswer = { answer = it; onOutcome(it) },
+                        onRetest = { answer = null; onRetestOtherDialect() },
                     )
                 }
             }
         },
         confirmButton = {
             TextButton(onClick = onDismiss, enabled = progress.finished) {
-                Text(if (succeeded) "Done" else "Close")
+                Text(
+                    stringResource(
+                        if (succeeded) R.string.action_done else R.string.action_close,
+                    ),
+                )
             }
         },
+    )
+}
+
+/**
+ * The one question the protocol cannot answer.
+ *
+ * A thermal printer reports paper loaded, head down and no error whether it
+ * just printed a perfect label, fed a blank one because the stock is ordinary
+ * paper, or spat out a page of command text because it is not listening in the
+ * dialect it was sent. Those three faults have nothing in common except that
+ * the printer cannot tell them apart — so the person holding the label is
+ * asked, and the answer is acted on.
+ *
+ * Not asking cost a whole field-test session. Six jobs reported as completed,
+ * the investigation went to the command language, and the fault was the paper.
+ */
+@Composable
+private fun TestLabelQuestion(
+    answer: TestLabelOutcome?,
+    alternateDialect: String?,
+    onAnswer: (TestLabelOutcome) -> Unit,
+    onRetest: () -> Unit,
+) {
+    when (answer) {
+        null -> {
+            Text(
+                stringResource(R.string.test_label_question),
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(top = 12.dp),
+            )
+            Text(
+                stringResource(R.string.test_label_question_body),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            AnswerRow(stringResource(R.string.test_label_answer_correct)) {
+                onAnswer(TestLabelOutcome.CORRECT)
+            }
+            AnswerRow(stringResource(R.string.test_label_answer_garbled)) {
+                onAnswer(TestLabelOutcome.GARBLED)
+            }
+            AnswerRow(stringResource(R.string.test_label_answer_nothing)) {
+                onAnswer(TestLabelOutcome.NOTHING)
+            }
+        }
+
+        TestLabelOutcome.CORRECT -> Advice(
+            stringResource(R.string.test_label_confirmed_title),
+            stringResource(R.string.test_label_confirmed_body),
+        )
+
+        TestLabelOutcome.NOTHING -> {
+            Advice(
+                stringResource(R.string.test_label_media_title),
+                stringResource(R.string.test_label_media_body),
+            )
+        }
+
+        TestLabelOutcome.GARBLED -> {
+            Advice(
+                stringResource(R.string.test_label_dialect_title),
+                stringResource(R.string.test_label_dialect_body),
+            )
+            if (alternateDialect != null) {
+                Button(
+                    onClick = onRetest,
+                    modifier = Modifier.padding(top = 8.dp),
+                ) {
+                    Text(stringResource(R.string.test_label_switch_dialect, alternateDialect))
+                }
+            } else {
+                Text(
+                    stringResource(R.string.test_label_dialect_manual),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AnswerRow(label: String, onClick: () -> Unit) {
+    TextButton(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
+        Text(label, modifier = Modifier.fillMaxWidth())
+    }
+}
+
+@Composable
+private fun Advice(heading: String, body: String) {
+    Text(
+        heading,
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.onSurface,
+        modifier = Modifier.padding(top = 12.dp),
+    )
+    Text(
+        body,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
 }
 
@@ -249,25 +366,25 @@ private fun StepIcon(state: StepState) {
         )
         StepState.DONE -> Icon(
             Icons.Filled.CheckCircle,
-            contentDescription = "done",
+            contentDescription = stringResource(R.string.step_done),
             tint = Color(0xFF2E7D32),
             modifier = Modifier.size(20.dp),
         )
         StepState.FAILED -> Icon(
             Icons.Filled.Error,
-            contentDescription = "failed",
+            contentDescription = stringResource(R.string.step_failed),
             tint = MaterialTheme.colorScheme.error,
             modifier = Modifier.size(20.dp),
         )
         StepState.SKIPPED -> Icon(
             Icons.Filled.RemoveCircleOutline,
-            contentDescription = "skipped",
+            contentDescription = stringResource(R.string.step_skipped),
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.size(20.dp),
         )
         StepState.PENDING -> Icon(
             Icons.Filled.RadioButtonUnchecked,
-            contentDescription = "pending",
+            contentDescription = stringResource(R.string.step_pending),
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.size(20.dp),
         )

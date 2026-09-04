@@ -62,6 +62,13 @@ jobs:
       - name: No required hardware features
         run: ./scripts/check-required-features.sh
 
+      # One class lives inside the android.print package to reach a
+      # package-private constructor, which is unsupported and can stop working
+      # on any Android release. This fails if a second one appears, or if the
+      # public-API fallback stops being wired in.
+      - name: One platform-package exception, with its fallback
+        run: ./scripts/check-platform-packages.sh
+
       - name: Upload debug APKs
         uses: actions/upload-artifact@v7
         with:

@@ -1,7 +1,13 @@
 package com.gulshan.pocketprint.ui.screens
 
+import android.app.Activity
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Intent
+import android.os.Build
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -19,6 +25,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Usb
+import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -36,25 +43,44 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.gulshan.pocketprint.model.ColorMode
 import com.gulshan.pocketprint.model.ConnectionKind
 import com.gulshan.pocketprint.model.MediaSize
+import com.gulshan.pocketprint.R
+import com.gulshan.pocketprint.discovery.CompanionPairing
 import com.gulshan.pocketprint.model.Printer
+import com.gulshan.pocketprint.permissions.AppHealth
+import com.gulshan.pocketprint.permissions.AppPermissions
+import com.gulshan.pocketprint.permissions.PermissionStatus
+import com.gulshan.pocketprint.permissions.PrintServiceState
+import com.gulshan.pocketprint.permissions.rememberPermissionRequester
+import com.gulshan.pocketprint.ui.enumSaver
 import com.gulshan.pocketprint.ui.components.AutoSetupCard
 import com.gulshan.pocketprint.ui.components.AutoSetupDialog
 import com.gulshan.pocketprint.ui.components.AutoSetupPicker
 import com.gulshan.pocketprint.ui.components.ChipRow
 import com.gulshan.pocketprint.ui.components.InfoBanner
+import com.gulshan.pocketprint.ui.components.PrintPreviewDialog
 import com.gulshan.pocketprint.ui.components.PrinterSettingsDialog
 import com.gulshan.pocketprint.ui.components.SectionHeader
+import com.gulshan.pocketprint.ui.components.WarningBanner
 import com.gulshan.pocketprint.ui.vm.PrintersViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -66,15 +92,78 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
     val document by viewModel.selectedDocument.collectAsStateWithLifecycle()
     val options by viewModel.options.collectAsStateWithLifecycle()
 
-    var showAddDialog by remember { mutableStateOf(false) }
-    var editing by remember { mutableStateOf<Printer?>(null) }
-    var pickingForSetup by remember { mutableStateOf(false) }
+    var showAddDialog by rememberSaveable { mutableStateOf(false) }
+    // By id, like the label screen: a Printer is not Parcelable, and resolving
+    // it from the saved list means an open settings dialog closes cleanly if
+    // that printer is deleted rather than editing a ghost.
+    var editingId by rememberSaveable { mutableStateOf<String?>(null) }
+    val editing = saved.firstOrNull { it.id == editingId }
+    var pickingForSetup by rememberSaveable { mutableStateOf(false) }
     val setupProgress by viewModel.setup.collectAsStateWithLifecycle()
+    val storageProblems by viewModel.storageProblems.collectAsStateWithLifecycle()
+    val preview by viewModel.preview.collectAsStateWithLifecycle()
+    val settings by viewModel.settings.collectAsStateWithLifecycle()
+
+    // Asked for where they are used, not on the way in. onAsked is what lets
+    // the app later tell "never asked" from "refused for good".
+    val permissions = rememberPermissionRequester(onAsked = { viewModel.rememberAsked(it) })
+
+    // Permission state and the print-service switch both change outside this
+    // app, in Settings, so they are re-read whenever the screen comes back.
+    var systemEpoch by remember { mutableIntStateOf(0) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) systemEpoch++
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    val activity = context as? Activity
+    val bluetoothStatus = remember(systemEpoch, settings.askedForBluetooth) {
+        activity?.let {
+            AppPermissions.status(it, AppPermissions.bluetooth, settings.askedForBluetooth)
+        } ?: PermissionStatus.ASKABLE
+    }
+    val localNetworkStatus = remember(systemEpoch, settings.askedForLocalNetwork) {
+        activity?.let {
+            AppPermissions.status(it, AppPermissions.localNetwork, settings.askedForLocalNetwork)
+        } ?: PermissionStatus.GRANTED
+    }
+    val printServiceStatus = remember(systemEpoch) { PrintServiceState.status(context) }
+    val hibernation = remember(systemEpoch) { AppHealth.hibernation(context) }
     val setupStock by viewModel.setupStock.collectAsStateWithLifecycle()
 
     val pickDocument = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument(),
     ) { uri -> uri?.let { viewModel.selectDocument(it) } }
+
+    // The system picker hands back an IntentSender rather than an Intent, so it
+    // is launched through the sender contract; the device comes back in the
+    // result data.
+    val pairLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult(),
+    ) { result ->
+        CompanionPairing.printerFrom(result.data)?.let { printer ->
+            pickingForSetup = false
+            viewModel.adoptPairedPrinter(printer)
+        }
+    }
+
+    fun pairNewPrinter() {
+        CompanionPairing.request(
+            context = context,
+            onPicker = { sender ->
+                runCatching {
+                    pairLauncher.launch(IntentSenderRequest.Builder(sender).build())
+                }
+            },
+            onUnavailable = { message ->
+                Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+            },
+        )
+    }
 
     LaunchedEffect(Unit) { viewModel.refreshLocalPrinters() }
 
@@ -84,17 +173,78 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
             .padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        items(storageProblems.entries.toList(), key = { it.key }) { problem ->
+            WarningBanner(problem.value, Modifier.padding(top = 16.dp))
+        }
+
+        // Nobody can be warned about this when it happens, because when it
+        // happens they are not here - the whole point of the app is that it
+        // stops being opened. So it is said whenever they do open it.
+        if (hibernation == AppHealth.Hibernation.WILL_HIBERNATE) {
+            item {
+                Column(Modifier.padding(top = 16.dp)) {
+                    WarningBanner(
+                        stringResource(R.string.hibernation_warning),
+                    )
+                    Button(
+                        onClick = { AppHealth.openHibernationSettings(context) },
+                        modifier = Modifier.padding(top = 8.dp),
+                    ) { Text(stringResource(R.string.action_open_app_info)) }
+                }
+            }
+        }
+
+        // Never reached on anything shipping today: the permission list is
+        // empty below Android 17, so the status is GRANTED and this is dead
+        // weight until the platform starts enforcing it. Which is exactly when
+        // somebody needs to be told, because the failure has no other symptom -
+        // printers stop being found and jobs time out as if switched off.
+        if (localNetworkStatus == PermissionStatus.BLOCKED) {
+            item {
+                Column(Modifier.padding(top = 16.dp)) {
+                    WarningBanner(stringResource(R.string.local_network_blocked_warning))
+                    Button(
+                        onClick = { AppPermissions.openAppSettings(context) },
+                        modifier = Modifier.padding(top = 8.dp),
+                    ) { Text(stringResource(R.string.action_open_app_settings)) }
+                }
+            }
+        }
+
+        // The state the old first-frame request left people in, with no way to
+        // find out and no way out. Android will not ask again after two
+        // refusals; app settings is the only route.
+        if (bluetoothStatus == PermissionStatus.BLOCKED) {
+            item {
+                Column(Modifier.padding(top = 16.dp)) {
+                    WarningBanner(
+                        stringResource(R.string.bluetooth_blocked_warning),
+                    )
+                    Button(
+                        onClick = { AppPermissions.openAppSettings(context) },
+                        modifier = Modifier.padding(top = 8.dp),
+                    ) { Text(stringResource(R.string.action_open_app_settings)) }
+                }
+            }
+        }
+
         item {
             AutoSetupCard(
                 candidateCount = discovery.bluetooth.size,
                 stock = setupStock,
                 onStockChange = { viewModel.setSetupStock(it) },
                 onStart = {
-                    val candidates = viewModel.autoSetupCandidates()
-                    if (candidates.size == 1) {
-                        viewModel.startAutoSetup(candidates.first())
-                    } else {
-                        pickingForSetup = true
+                    // The dialog now arrives immediately after somebody taps
+                    // "set up my printer", which is a dialog about the thing
+                    // they just asked for rather than about nothing.
+                    permissions.ensure(AppPermissions.bluetooth) { granted ->
+                        if (!granted) return@ensure
+                        val candidates = viewModel.autoSetupCandidates()
+                        if (candidates.size == 1) {
+                            viewModel.startAutoSetup(candidates.first())
+                        } else {
+                            pickingForSetup = true
+                        }
                     }
                 },
                 modifier = Modifier.padding(top = 16.dp),
@@ -102,11 +252,11 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
         }
 
         item {
-            SectionHeader("Document")
+            SectionHeader(stringResource(R.string.printers_document))
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp)) {
                     Text(
-                        document?.displayName ?: "No document selected",
+                        document?.displayName ?: stringResource(R.string.printers_no_document),
                         style = MaterialTheme.typography.titleMedium,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
@@ -123,11 +273,11 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         Button(onClick = { pickDocument.launch(arrayOf("*/*")) }) {
-                            Text("Choose file")
+                            Text(stringResource(R.string.printers_choose_file))
                         }
                         if (document != null) {
                             OutlinedButton(onClick = { viewModel.setDocument(null) }) {
-                                Text("Clear")
+                                Text(stringResource(R.string.action_clear))
                             }
                         }
                     }
@@ -136,7 +286,7 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
         }
 
         item {
-            SectionHeader("Paper")
+            SectionHeader(stringResource(R.string.printers_paper))
             ChipRow(
                 items = MediaSize.ALL,
                 selected = options.mediaSize,
@@ -146,7 +296,7 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
         }
 
         item {
-            SectionHeader("Options")
+            SectionHeader(stringResource(R.string.printers_options))
             Row(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -157,7 +307,13 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
                         it.copy(copies = (it.copies - 1).coerceAtLeast(1))
                     }
                 }) { Text("-") }
-                Text("${options.copies} ${if (options.copies == 1) "copy" else "copies"}")
+                Text(
+                    pluralStringResource(
+                        R.plurals.printers_copies,
+                        options.copies,
+                        options.copies,
+                    ),
+                )
                 OutlinedButton(onClick = {
                     viewModel.updateOptions { it.copy(copies = it.copies + 1) }
                 }) { Text("+") }
@@ -165,7 +321,15 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
             ChipRow(
                 items = listOf(ColorMode.MONOCHROME, ColorMode.COLOR),
                 selected = options.colorMode,
-                label = { if (it == ColorMode.COLOR) "Colour" else "Black & white" },
+                label = {
+                    context.getString(
+                        if (it == ColorMode.COLOR) {
+                            R.string.printers_colour
+                        } else {
+                            R.string.printers_mono
+                        },
+                    )
+                },
                 onSelect = { mode -> viewModel.updateOptions { it.copy(colorMode = mode) } },
                 modifier = Modifier.padding(top = 8.dp),
             )
@@ -187,18 +351,18 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    "SAVED PRINTERS",
+                    stringResource(R.string.printers_saved),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.primary,
                 )
                 IconButton(onClick = { showAddDialog = true }) {
-                    Icon(Icons.Filled.Add, contentDescription = "Add printer manually")
+                    Icon(Icons.Filled.Add, contentDescription = stringResource(R.string.printers_add_manually))
                 }
             }
         }
 
         if (saved.isEmpty()) {
-            item { InfoBanner("No saved printers yet. Scan below, or add one by IP address.") }
+            item { InfoBanner(stringResource(R.string.printers_none_saved)) }
         }
 
         items(saved, key = { it.id }) { printer ->
@@ -206,20 +370,43 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
                 printer = printer,
                 trailing = {
                     Row {
-                        IconButton(onClick = { editing = printer }) {
-                            Icon(Icons.Filled.Tune, contentDescription = "Printer settings")
+                        // Tapping the row prints, which on a thermal printer
+                        // consumes a label. Looking first should be one tap
+                        // away from that, not buried.
+                        IconButton(
+                            onClick = { viewModel.previewOn(printer) },
+                            enabled = document != null,
+                        ) {
+                            Icon(Icons.Filled.Visibility, contentDescription = stringResource(R.string.printers_preview))
+                        }
+                        IconButton(onClick = { editingId = printer.id }) {
+                            Icon(Icons.Filled.Tune, contentDescription = stringResource(R.string.printers_settings))
                         }
                         IconButton(onClick = { viewModel.removePrinter(printer.id) }) {
-                            Icon(Icons.Filled.Delete, contentDescription = "Remove")
+                            Icon(Icons.Filled.Delete, contentDescription = stringResource(R.string.printers_remove))
                         }
                     }
                 },
                 enabled = document != null,
-                onClick = { viewModel.print(printer) },
+                onClick = {
+                    // Asked for here because this is when a job is about to run
+                    // in the background, and refused or not the job still goes:
+                    // the notification is how progress and Cancel are shown, not
+                    // something printing depends on.
+                    val wanted = AppPermissions.notifications +
+                        if (printer.kind == ConnectionKind.IPP ||
+                            printer.kind == ConnectionKind.RAW9100
+                        ) {
+                            AppPermissions.localNetwork
+                        } else {
+                            emptyList()
+                        }
+                    permissions.ensure(wanted) { viewModel.print(printer) }
+                },
                 subtitleOverride = if (document == null) {
-                    "Choose a document first"
+                    stringResource(R.string.printers_choose_document_first)
                 } else {
-                    "Tap to print"
+                    stringResource(R.string.printers_tap_to_print)
                 },
             )
         }
@@ -233,15 +420,26 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    "DISCOVERED",
+                    stringResource(R.string.printers_discovered),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.primary,
                 )
                 if (discovery.scanning) {
                     CircularProgressIndicator(Modifier.padding(8.dp), strokeWidth = 2.dp)
                 } else {
-                    IconButton(onClick = { viewModel.startScan() }) {
-                        Icon(Icons.Filled.Refresh, contentDescription = "Scan")
+                    IconButton(
+                        onClick = {
+                            // Discovery covers both radios, so it asks for
+                            // both: mDNS is behind the local network permission
+                            // from Android 17.
+                            permissions.ensure(
+                                AppPermissions.bluetooth + AppPermissions.localNetwork,
+                            ) { granted ->
+                                if (granted) viewModel.startScan()
+                            }
+                        },
+                    ) {
+                        Icon(Icons.Filled.Refresh, contentDescription = stringResource(R.string.printers_scan))
                     }
                 }
             }
@@ -253,8 +451,7 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
         if (discovered.isEmpty() && !discovery.scanning) {
             item {
                 InfoBanner(
-                    "Nothing found yet. Wi-Fi printers must be on the same network; " +
-                        "Bluetooth printers must already be paired in Android Settings.",
+                    stringResource(R.string.printers_nothing_found),
                 )
             }
         }
@@ -263,7 +460,9 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
             PrinterRow(
                 printer = printer,
                 trailing = {
-                    TextButton(onClick = { viewModel.savePrinter(printer) }) { Text("Save") }
+                    TextButton(onClick = { viewModel.savePrinter(printer) }) {
+                        Text(stringResource(R.string.action_save))
+                    }
                 },
                 enabled = true,
                 onClick = { viewModel.savePrinter(printer) },
@@ -271,12 +470,21 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
         }
 
         item {
-            SectionHeader("System printing")
-            InfoBanner(
-                "To print from other apps, turn PocketPrint on under " +
-                    "Settings > Connected devices > Printing. Saved printers appear " +
-                    "in every app's print dialog, including Bluetooth ones.",
-            )
+            SectionHeader(stringResource(R.string.printers_system_printing))
+            when (printServiceStatus) {
+                PrintServiceState.Status.ENABLED -> InfoBanner(
+                    stringResource(R.string.print_service_enabled),
+                )
+                PrintServiceState.Status.DISABLED -> WarningBanner(
+                    stringResource(R.string.print_service_disabled),
+                )
+                // Reading that switch is not permitted on every Android
+                // version, and claiming it is off when it might be on would
+                // send people to fix something already working.
+                PrintServiceState.Status.UNKNOWN -> InfoBanner(
+                    stringResource(R.string.print_service_unknown),
+                )
+            }
             Button(
                 onClick = {
                     runCatching {
@@ -287,7 +495,7 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
                     }
                 },
                 modifier = Modifier.padding(top = 8.dp, bottom = 24.dp),
-            ) { Text("Open print settings") }
+            ) { Text(stringResource(R.string.action_open_print_settings)) }
         }
     }
 
@@ -299,22 +507,60 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
                 pickingForSetup = false
                 viewModel.startAutoSetup(it)
             },
+            onPairNew = if (CompanionPairing.isSupported(context)) {
+                { pairNewPrinter() }
+            } else {
+                null
+            },
         )
     }
 
+    preview?.let { state ->
+        PrintPreviewDialog(state = state, onDismiss = { viewModel.dismissPreview() })
+    }
+
     setupProgress?.let { progress ->
-        AutoSetupDialog(progress = progress, onDismiss = { viewModel.dismissSetup() })
+        AutoSetupDialog(
+            progress = progress,
+            onDismiss = { viewModel.dismissSetup() },
+            onOutcome = { viewModel.recordTestLabelOutcome(it) },
+            alternateDialect = progress.printer?.let { viewModel.alternateDialect(it)?.name },
+            onRetestOtherDialect = { viewModel.retestWithOtherDialect() },
+        )
     }
 
     editing?.let { target ->
         PrinterSettingsDialog(
             printer = target,
-            onDismiss = { editing = null },
+            onDismiss = { editingId = null },
             onSave = {
                 viewModel.updatePrinter(it)
-                editing = null
+                editingId = null
             },
             onTestPage = { viewModel.printTestPage(it) },
+            onCalibrate = {
+                viewModel.updatePrinter(it)
+                viewModel.calibrate(it)
+                editingId = null
+            },
+            onCopyReport = {
+                val clipboard = context.getSystemService(ClipboardManager::class.java)
+                clipboard?.setPrimaryClip(
+                    ClipData.newPlainText(
+                        context.getString(R.string.report_clip_label),
+                        viewModel.printerReport(target),
+                    ),
+                )
+                // From Android 13 the system shows its own copy confirmation,
+                // and a Toast on top of it is just clutter.
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+                    Toast.makeText(
+                        context,
+                        R.string.report_copied,
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                }
+            },
         )
     }
 
@@ -375,6 +621,16 @@ private fun PrinterRow(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+                // Worth showing, because for a Bluetooth or USB printer this is
+                // the only evidence that exists that it prints at all.
+                if (printer.testPrintConfirmed) {
+                    Text(
+                        stringResource(R.string.printers_confirmed),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF2E7D32),
+                        maxLines = 1,
+                    )
+                }
             }
             trailing()
         }
@@ -386,32 +642,45 @@ private fun AddPrinterDialog(
     onDismiss: () -> Unit,
     onAdd: (name: String, host: String, port: Int, kind: ConnectionKind) -> Unit,
 ) {
-    var name by remember { mutableStateOf("") }
-    var host by remember { mutableStateOf("") }
-    var kind by remember { mutableStateOf(ConnectionKind.IPP) }
-    var port by remember { mutableStateOf("631") }
+    // For the ChipRow label, which is a plain lambda rather than a composable.
+    val context = LocalContext.current
+
+    var name by rememberSaveable { mutableStateOf("") }
+    var host by rememberSaveable { mutableStateOf("") }
+    var kind by rememberSaveable(stateSaver = enumSaver(ConnectionKind.entries.toList())) {
+        mutableStateOf(ConnectionKind.IPP)
+    }
+    var port by rememberSaveable { mutableStateOf("631") }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Add printer by address") },
+        title = { Text(stringResource(R.string.add_printer_title)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("Name (optional)") },
+                    label = { Text(stringResource(R.string.add_printer_name)) },
                     singleLine = true,
                 )
                 OutlinedTextField(
                     value = host,
                     onValueChange = { host = it },
-                    label = { Text("IP address or hostname") },
+                    label = { Text(stringResource(R.string.add_printer_host)) },
                     singleLine = true,
                 )
                 ChipRow(
                     items = listOf(ConnectionKind.IPP, ConnectionKind.RAW9100),
                     selected = kind,
-                    label = { if (it == ConnectionKind.IPP) "IPP / AirPrint" else "Raw 9100" },
+                    label = {
+                        context.getString(
+                            if (it == ConnectionKind.IPP) {
+                                R.string.add_printer_ipp
+                            } else {
+                                R.string.add_printer_raw
+                            },
+                        )
+                    },
                     onSelect = {
                         kind = it
                         port = if (it == ConnectionKind.IPP) "631" else "9100"
@@ -420,7 +689,7 @@ private fun AddPrinterDialog(
                 OutlinedTextField(
                     value = port,
                     onValueChange = { port = it.filter(Char::isDigit).take(5) },
-                    label = { Text("Port") },
+                    label = { Text(stringResource(R.string.add_printer_port)) },
                     singleLine = true,
                 )
             }
@@ -429,8 +698,10 @@ private fun AddPrinterDialog(
             TextButton(
                 enabled = host.isNotBlank() && port.isNotBlank(),
                 onClick = { onAdd(name, host.trim(), port.toIntOrNull() ?: 631, kind) },
-            ) { Text("Add") }
+            ) { Text(stringResource(R.string.add_printer_add)) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) }
+        },
     )
 }

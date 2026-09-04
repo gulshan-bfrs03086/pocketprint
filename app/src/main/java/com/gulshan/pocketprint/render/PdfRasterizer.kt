@@ -66,6 +66,16 @@ object PdfRasterizer {
                         }
                         page.render(bitmap, null, matrix, PdfRenderer.Page.RENDER_MODE_FOR_PRINT)
 
+                        com.gulshan.pocketprint.print.Diagnostics.record(
+                            "PdfDiag",
+                            "page $i pdfPt=${page.width}x${page.height} " +
+                                "raster=${widthPx}x$heightPx dpi=$dpi",
+                        )
+
+                        // The per-pixel pass is the expensive part - a sampled
+                        // 600 dpi A4 page is still six figures of pixels - so it
+                        // stays behind the debug flag while the geometry above
+                        // is always available.
                         if (com.gulshan.pocketprint.BuildConfig.DEBUG) {
                             val row = IntArray(widthPx)
                             var dark = 0
@@ -81,11 +91,9 @@ object PdfRasterizer {
                                 }
                                 y += 8 // sample every 8th row
                             }
-                            android.util.Log.i(
+                            com.gulshan.pocketprint.print.Diagnostics.record(
                                 "PdfDiag",
-                                "page $i pdfPt=${page.width}x${page.height} " +
-                                    "raster=${widthPx}x$heightPx dpi=$dpi " +
-                                    "sampledDarkPx=$dark opaquePx=$opaque",
+                                "page $i sampledDarkPx=$dark opaquePx=$opaque",
                             )
                         }
 
@@ -251,6 +259,49 @@ object Raster {
             }
         }
         return out
+    }
+
+    /**
+     * Turns packed 1-bit rows back into a bitmap.
+     *
+     * The inverse of [toPackedMono], and the point of it is preview: these are
+     * the actual bits about to go down the wire, so what it shows is what the
+     * printer will mark - dithering, threshold, lost thin strokes and all -
+     * rather than the source document rendered a second, prettier way.
+     */
+    fun fromPackedMono(packed: ByteArray, width: Int, height: Int): Bitmap {
+        val bytesPerRow = (width + 7) / 8
+        val bitmap = Bitmap.createBitmap(
+            width.coerceAtLeast(1), height.coerceAtLeast(1), Bitmap.Config.ARGB_8888,
+        )
+        for (y in 0 until height) {
+            val row = monoRowPixels(packed, y * bytesPerRow, width)
+            bitmap.setPixels(row, 0, width, 0, y, width, 1)
+        }
+        return bitmap
+    }
+
+    /**
+     * One packed row as ARGB pixels.
+     *
+     * Split out of [fromPackedMono] so the two things that are easy to get
+     * backwards can be pinned by a test without an Android bitmap: bits run
+     * most-significant first across the row, and a set bit means ink. TSPL
+     * inverts that polarity on the wire, which is exactly why it is worth
+     * having somewhere unambiguous.
+     *
+     * A row that runs off the end of [packed] is padded with white rather than
+     * throwing: a truncated payload should look short, not crash a preview.
+     */
+    internal fun monoRowPixels(packed: ByteArray, rowBase: Int, width: Int): IntArray {
+        val row = IntArray(width)
+        for (x in 0 until width) {
+            val index = rowBase + (x shr 3)
+            val ink = index < packed.size &&
+                ((packed[index].toInt() ushr (7 - (x and 7))) and 1) == 1
+            row[x] = if (ink) Color.BLACK else Color.WHITE
+        }
+        return row
     }
 
     /** 8-bit grayscale rows, 0 = black, 255 = white (sGray colour space). */

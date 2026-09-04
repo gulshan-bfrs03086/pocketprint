@@ -18,12 +18,16 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.gulshan.pocketprint.BuildConfig
+import com.gulshan.pocketprint.R
 import com.gulshan.pocketprint.model.MediaSize
 import com.gulshan.pocketprint.ui.components.ChipRow
 import com.gulshan.pocketprint.ui.components.InfoBanner
@@ -34,7 +38,7 @@ import com.gulshan.pocketprint.ui.vm.PrintersViewModel
 fun SettingsScreen(viewModel: PrintersViewModel) {
     val context = LocalContext.current
     val settings by viewModel.settings.collectAsStateWithLifecycle()
-    var converterUrl by remember(settings.officeConverterUrl) {
+    var converterUrl by rememberSaveable(settings.officeConverterUrl) {
         mutableStateOf(settings.officeConverterUrl)
     }
 
@@ -45,7 +49,7 @@ fun SettingsScreen(viewModel: PrintersViewModel) {
             .padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        SectionHeader("Defaults")
+        SectionHeader(stringResource(R.string.settings_defaults))
         ChipRow(
             items = MediaSize.ALL,
             selected = MediaSize.byId(settings.defaultMediaId),
@@ -57,34 +61,31 @@ fun SettingsScreen(viewModel: PrintersViewModel) {
         ChipRow(
             items = listOf(150, 203, 300, 600),
             selected = settings.defaultDpi,
-            label = { "$it dpi" },
+            // getString rather than stringResource: a ChipRow label is a plain
+            // lambda, not a composable one.
+            label = { context.getString(R.string.settings_dpi, it) },
             onSelect = { dpi -> viewModel.updateSettings { it.copy(defaultDpi = dpi) } },
             modifier = Modifier.padding(top = 8.dp),
         )
 
         ToggleRow(
-            label = "Default to colour",
+            label = stringResource(R.string.settings_default_colour),
             checked = settings.defaultColor,
             onChange = { value -> viewModel.updateSettings { it.copy(defaultColor = value) } },
         )
         ToggleRow(
-            label = "Dither images for thermal printers",
+            label = stringResource(R.string.settings_dither),
             checked = settings.ditherImages,
             onChange = { value -> viewModel.updateSettings { it.copy(ditherImages = value) } },
         )
 
-        SectionHeader("Office documents")
-        InfoBanner(
-            "Word, Excel and PowerPoint files cannot be laid out on the phone " +
-                "without a full office engine. Point this at a converter that " +
-                "accepts a multipart upload and returns a PDF - a Gotenberg " +
-                "instance on your LAN works as-is. Leave it blank to disable.",
-        )
+        SectionHeader(stringResource(R.string.settings_office_title))
+        InfoBanner(stringResource(R.string.settings_office_body))
         OutlinedTextField(
             value = converterUrl,
             onValueChange = { converterUrl = it },
-            label = { Text("Converter URL") },
-            placeholder = { Text("http://192.168.1.10:3000/forms/libreoffice/convert") },
+            label = { Text(stringResource(R.string.settings_converter_url)) },
+            placeholder = { Text(stringResource(R.string.settings_converter_hint)) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
@@ -92,13 +93,10 @@ fun SettingsScreen(viewModel: PrintersViewModel) {
             onClick = {
                 viewModel.updateSettings { it.copy(officeConverterUrl = converterUrl.trim()) }
             },
-        ) { Text("Save converter URL") }
+        ) { Text(stringResource(R.string.settings_save_converter)) }
 
-        SectionHeader("System print service")
-        InfoBanner(
-            "Turning this on lets any app print to your saved printers, including " +
-                "Bluetooth ones, through the standard Android print dialog.",
-        )
+        SectionHeader(stringResource(R.string.settings_print_service_title))
+        InfoBanner(stringResource(R.string.settings_print_service_body))
         Button(
             onClick = {
                 runCatching {
@@ -108,10 +106,11 @@ fun SettingsScreen(viewModel: PrintersViewModel) {
                     )
                 }
             },
-        ) { Text("Open Android print settings") }
+        ) { Text(stringResource(R.string.settings_open_android_print)) }
 
         Text(
-            "PocketPrint 1.0",
+            // Was hardcoded "PocketPrint 1.0", which stopped being true at 1.0.1.
+            stringResource(R.string.settings_version, BuildConfig.VERSION_NAME),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 24.dp, bottom = 24.dp),

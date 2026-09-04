@@ -1,6 +1,8 @@
 package com.gulshan.pocketprint.transport
 
+import android.content.Context
 import com.gulshan.pocketprint.model.PrinterAddress
+import com.gulshan.pocketprint.net.LocalNetwork
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.InputStream
@@ -16,6 +18,8 @@ import java.net.Socket
 class RawSocketTransport(
     private val address: PrinterAddress.Raw,
     private val connectTimeoutMs: Int = 6_000,
+    /** Only for finding the local network; null means use the default one. */
+    private val context: Context? = null,
 ) : PrinterTransport {
 
     private var socket: Socket? = null
@@ -29,6 +33,10 @@ class RawSocketTransport(
             s.tcpNoDelay = true
             s.keepAlive = true
             s.soTimeout = 15_000
+            // Before connect, because a socket can only be bound while it is
+            // still unconnected - and after connect it is already on the wrong
+            // network with nothing to say so but a timeout.
+            context?.let { LocalNetwork.bind(it, s) }
             s.connect(InetSocketAddress(address.host, address.port), connectTimeoutMs)
             socket = s
             out = s.getOutputStream()
@@ -65,17 +73,19 @@ class RawSocketTransport(
 
     override suspend fun readAvailable(timeoutMs: Long): ByteArray = withContext(Dispatchers.IO) {
         val s = socket ?: return@withContext ByteArray(0)
-        try {
+        val read = try {
             s.soTimeout = timeoutMs.toInt().coerceAtLeast(1)
             val input = s.getInputStream()
             val available = input.available()
             if (available <= 0) return@withContext ByteArray(0)
             val buf = ByteArray(available.coerceAtMost(4096))
             val n = input.read(buf)
-            if (n <= 0) ByteArray(0) else buf.copyOf(n)
+            // Same distinction as RFCOMM: 0 is nothing to say, -1 is gone.
+            if (n < 0) null else buf.copyOf(n.coerceAtLeast(0))
         } catch (_: Throwable) {
             ByteArray(0)
         }
+        read ?: throw TransportException("The printer closed the connection")
     }
 
     override fun close() {

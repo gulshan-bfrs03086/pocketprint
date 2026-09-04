@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -13,8 +15,8 @@ plugins {
  * See docs/RELEASING.md.
  */
 val versionMajor = 1
-val versionMinor = 0
-val versionPatch = 1
+val versionMinor = 1
+val versionPatch = 0
 
 /**
  * Version codes must be distinct integers that only increase, and the two
@@ -25,13 +27,63 @@ val versionPatch = 1
  */
 val baseVersionCode = (versionMajor * 10000 + versionMinor * 100 + versionPatch) * 10
 
+/**
+ * Release signing material, when there is any.
+ *
+ * Read from keystore.properties at the repository root - which is gitignored,
+ * and holds a path to a keystore that is also never committed - or from the
+ * environment, so CI can pass it in from secrets without a file on disk.
+ *
+ * When neither is present the release build is left unsigned. It deliberately
+ * does not fall back to the debug key: an APK signed with the public AOSP debug
+ * key looks signed and is not, whereas one AGP names "-unsigned" tells the
+ * truth. Being unsigned also keeps the release build compiling on a fork or a
+ * pull request, where no secret is available and none should be.
+ */
+val keystoreProperties = Properties().apply {
+    val file = rootProject.file("keystore.properties")
+    if (file.exists()) file.inputStream().use { load(it) }
+}
+
+fun signingSetting(property: String, environment: String): String? =
+    (keystoreProperties.getProperty(property) ?: System.getenv(environment))
+        ?.takeIf { it.isNotBlank() }
+
+val releaseStore = signingSetting("storeFile", "POCKETPRINT_KEYSTORE")
+val releaseStorePassword = signingSetting("storePassword", "POCKETPRINT_KEYSTORE_PASSWORD")
+val releaseKeyAlias = signingSetting("keyAlias", "POCKETPRINT_KEY_ALIAS")
+val releaseKeyPassword = signingSetting("keyPassword", "POCKETPRINT_KEY_PASSWORD")
+
+val canSignRelease = listOf(
+    releaseStore, releaseStorePassword, releaseKeyAlias, releaseKeyPassword,
+).all { it != null }
+
+/**
+ * Bumping this to 37 turns local network access into a runtime permission, and
+ * the failure without it is silent - printers stop being discovered and jobs to
+ * a known address time out as though the printer were switched off. So the
+ * build refuses to make that change without the permission being declared.
+ */
+val targetSdkVersion = 36
+
+run {
+    val manifest = file("src/main/AndroidManifest.xml").readText()
+    val permission = "android.permission.ACCESS_LOCAL_NETWORK"
+    require(targetSdkVersion < 37 || manifest.contains(permission)) {
+        "targetSdk $targetSdkVersion needs $permission declared in the manifest, or " +
+            "network discovery and printing stop working with no error anywhere. " +
+            "Check the name against the API 37 SDK while you are here - it is " +
+            "written out by hand in AppPermissions because it did not exist yet."
+    }
+}
+
 android {
     namespace = "com.gulshan.pocketprint"
     compileSdk = 36
 
     defaultConfig {
         applicationId = "com.gulshan.pocketprint"
-        targetSdk = 36
+        targetSdk = targetSdkVersion
         versionCode = baseVersionCode
         versionName = "$versionMajor.$versionMinor.$versionPatch"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -86,6 +138,22 @@ android {
             enableV1Signing = true
             enableV2Signing = true
         }
+
+        if (canSignRelease) {
+            create("release") {
+                storeFile = file(releaseStore!!)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+
+                // v1 for the same reason as debug: the legacy flavour installs
+                // back to Android 7, and some OEM installers of that era only
+                // look at the JAR signature.
+                enableV1Signing = true
+                enableV2Signing = true
+                enableV3Signing = true
+            }
+        }
     }
 
     buildTypes {
@@ -97,6 +165,10 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+
+            // Null when no key is configured, which leaves an APK named
+            // "-unsigned" rather than one signed by a key anyone else also has.
+            signingConfig = signingConfigs.findByName("release")
         }
     }
 
@@ -143,6 +215,7 @@ dependencies {
     coreLibraryDesugaring(libs.desugar.jdk.libs)
 
     implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.core.splashscreen)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
@@ -154,7 +227,6 @@ dependencies {
     implementation(libs.androidx.material3)
     implementation(libs.androidx.material.icons.extended)
     implementation(libs.androidx.navigation.compose)
-    implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.androidx.documentfile)
     implementation(libs.kotlinx.coroutines.android)

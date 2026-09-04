@@ -1,6 +1,294 @@
 <resources>
+    <!--
+      Every string a user reads lives here.
+
+      Not for tidiness: hardcoded English is what made this app untranslatable,
+      and Android will not offer an app under App languages at all until its
+      text is in resources with a locale config beside it. The markets that buy
+      these printers are largely not English-speaking ones.
+
+      Names are prefixed by where they appear. Format arguments are positional
+      (%1$s) so a translation can reorder them, which several languages need.
+    -->
     <string name="app_name">PocketPrint</string>
     <string name="share_label">Print with PocketPrint</string>
     <string name="channel_jobs">Print jobs</string>
     <string name="channel_jobs_description">Progress while a document is being sent to a printer</string>
+
+    <!-- Common actions -->
+    <string name="action_cancel">Cancel</string>
+    <string name="action_close">Close</string>
+    <string name="action_dismiss">Dismiss</string>
+    <string name="action_save">Save</string>
+    <string name="action_clear">Clear</string>
+    <string name="action_done">Done</string>
+    <string name="action_open_app_settings">Open app settings</string>
+    <string name="action_open_app_info">Open app info</string>
+    <string name="action_open_print_settings">Open print settings</string>
+
+    <!-- First run -->
+    <string name="first_run_intro">Printing from Android to a Bluetooth thermal printer, without a cloud service, an account, or a PC in the middle. Everything happens on this device and your own network.</string>
+    <string name="first_run_bluetooth_title">Bluetooth, when you set up a printer</string>
+    <string name="first_run_bluetooth_body">To send the printer its job, and nothing else. Finding it is done by Android\'s own device picker, which scans on PocketPrint\'s behalf — so this app never scans, and never asks for a location permission on any version of Android.</string>
+    <string name="first_run_notifications_title">Notifications, when you print</string>
+    <string name="first_run_notifications_body">A print job runs in the background so that leaving the app does not kill the transfer. The notification is how you see progress and how you cancel a job that has gone wrong.</string>
+    <string name="first_run_nothing_title">Nothing else</string>
+    <string name="first_run_nothing_body">No account, no analytics, no network calls except to your own printer. Documents are read through Android\'s file picker, so PocketPrint never asks for access to your storage or your photos.</string>
+    <string name="first_run_start">Get started</string>
+    <string name="first_run_footnote">Nothing is requested yet. Each permission is asked for at the moment it is needed, and the app keeps working without them - it just cannot do the part that needs them.</string>
+
+    <!-- Job history -->
+    <string name="jobs_title">History</string>
+    <string name="jobs_empty">No print jobs yet.</string>
+    <string name="jobs_printed">Printed (%1$d KB)</string>
+    <string name="jobs_sent_unconfirmed">Sent (%1$d KB) - not confirmed</string>
+    <string name="jobs_failed">Failed</string>
+    <string name="jobs_reprint">Print again</string>
+
+    <!-- Preview -->
+    <string name="preview_title">Preview on %1$s</string>
+    <string name="preview_explanation">The first page, exactly as it will be sent: one bit per dot, at the printer\'s own head width and resolution.</string>
+    <string name="preview_dimensions">%1$d x %2$d dots</string>
+    <string name="preview_none">Nothing to preview.</string>
+    <string name="preview_content_description">Print preview</string>
+
+    <!-- Settings -->
+    <string name="settings_defaults">Defaults</string>
+    <string name="settings_dpi">%1$d dpi</string>
+    <string name="settings_default_colour">Default to colour</string>
+    <string name="settings_dither">Dither images for thermal printers</string>
+    <string name="settings_office_title">Office documents</string>
+    <string name="settings_office_body">Word, Excel and PowerPoint files cannot be laid out on the phone without a full office engine. Point this at a converter that accepts a multipart upload and returns a PDF - a Gotenberg instance on your LAN works as-is. Leave it blank to disable.</string>
+    <string name="settings_converter_url">Converter URL</string>
+    <string name="settings_converter_hint">http://192.168.1.10:3000/forms/libreoffice/convert</string>
+    <string name="settings_save_converter">Save converter URL</string>
+    <string name="settings_print_service_title">System print service</string>
+    <string name="settings_print_service_body">Turning this on lets any app print to your saved printers, including Bluetooth ones, through the standard Android print dialog.</string>
+    <string name="settings_open_android_print">Open Android print settings</string>
+    <string name="settings_version">PocketPrint %1$s</string>
+
+    <!-- One-tap setup -->
+    <string name="setup_card_title">Set up a label or receipt printer</string>
+    <string name="setup_card_body">Pairs, connects, asks the printer which command language it speaks, configures the label size, prints a test label, and adds it to Android\'s print dialog.</string>
+    <string name="setup_stock_label">Label stock loaded in the printer</string>
+    <string name="setup_stock_warning">This has to match the labels actually loaded. Set it too long and the printer feeds forward looking for a gap that is not there, then stops with a paper fault.</string>
+    <string name="setup_start_one">Set up my printer</string>
+    <string name="setup_start_many">Set up a printer</string>
+
+    <string name="setup_picker_title">Which printer?</string>
+    <string name="setup_picker_empty">No paired Bluetooth printers yet.</string>
+    <string name="setup_picker_empty_legacy">No paired Bluetooth printers found. Pair the printer in Android Settings first — the PIN is usually 0000 — then come back and try again.</string>
+    <string name="setup_pair_new">Pair a new printer</string>
+
+    <string name="setup_running">Setting up…</string>
+    <string name="setup_ready">Ready to print</string>
+    <string name="setup_failed">Setup failed</string>
+
+    <string name="step_done">done</string>
+    <string name="step_failed">failed</string>
+    <string name="step_skipped">skipped</string>
+    <string name="step_pending">pending</string>
+
+    <string name="test_label_question">Did a label come out?</string>
+    <string name="test_label_question_body">The printer cannot answer this one. Whatever happened, it reports paper loaded, head down and no error.</string>
+    <string name="test_label_answer_correct">It printed and looks right</string>
+    <string name="test_label_answer_garbled">It printed, but the output is wrong</string>
+    <string name="test_label_answer_nothing">Nothing, or a blank label</string>
+    <string name="test_label_confirmed_title">Confirmed.</string>
+    <string name="test_label_confirmed_body">This printer is now marked as confirmed by an actual label. That is the only confirmation Bluetooth and USB can give — neither protocol reports what the printer did with the bytes.</string>
+    <string name="test_label_media_title">That is almost always the paper.</string>
+    <string name="test_label_media_body">Thermal printers have no ink: they mark heat-sensitive stock, on one side only. Ordinary paper labels, or a thermal roll loaded upside down, feed perfectly and stay white. Check the stock, then print another test from the printer\'s settings.</string>
+    <string name="test_label_dialect_title">That is the command language.</string>
+    <string name="test_label_dialect_body">The printer is not listening in the dialect it was sent, so it is printing the commands instead of obeying them.</string>
+    <string name="test_label_switch_dialect">Switch to %1$s and try again</string>
+    <string name="test_label_dialect_manual">Change it in the printer\'s settings, where there is a test-page button.</string>
+
+    <!-- Printer settings.
+         The dialect names (TSPL, ZPL, ESC/POS, PCL, PDF) are deliberately not
+         here: they are the protocols' own names and do not translate. -->
+    <string name="printer_settings_title">Printer settings</string>
+    <string name="printer_name">Name</string>
+    <string name="printer_language">Command language</string>
+    <string name="printer_language_help">If the printer spits out pages of readable commands instead of your label, this is the setting that is wrong.</string>
+    <string name="printer_default_stock">Default stock</string>
+    <string name="printer_custom_width">Width mm</string>
+    <string name="printer_custom_height">Height mm</string>
+    <string name="printer_custom_add">Add</string>
+    <string name="printer_stock_section">Label stock</string>
+    <string name="printer_sensing_gap">Gap</string>
+    <string name="printer_sensing_black_mark">Black mark</string>
+    <string name="printer_sensing_continuous">Continuous</string>
+    <string name="printer_sensing_help">How the printer finds the top of the next label. Set to look for a gap that is not there, it feeds forward hunting for one and stops with a paper fault. Nothing in the protocol can tell you which is right, which is why it is a setting.</string>
+    <string name="printer_gap_height">Gap height in mm</string>
+    <string name="printer_mark_height">Black mark height in mm</string>
+    <string name="printer_darkness">Darkness</string>
+    <string name="printer_darkness_help">The most common adjustment there is. Too light and barcodes scan intermittently or not at all; too dark and thin bars bleed together and also stop scanning.</string>
+    <string name="printer_speed">Speed (ips)</string>
+    <string name="printer_calibrate">Calibrate media sensor</string>
+    <string name="printer_calibrate_help">Feeds a few labels while the printer works out where the gaps are. Worth doing when printing drifts onto the join between two labels.</string>
+    <string name="printer_resolution">Resolution</string>
+    <string name="printer_head_width">Print head width in dots</string>
+    <string name="printer_head_width_help">203 dpi heads: 384 for 58 mm, 576 for 80 mm, 812 for 4 inch.</string>
+    <string name="printer_test_page">Send test page with these settings</string>
+    <string name="printer_copy_report">Copy printer report</string>
+    <string name="printer_stepper">%1$s: %2$d</string>
+
+    <!-- Label designer -->
+    <string name="label_default_heading">SAMPLE LABEL</string>
+    <string name="label_default_barcode">TEST1234</string>
+    <string name="label_content">Label content</string>
+    <string name="label_heading">Heading</string>
+    <string name="label_line2">Line 2</string>
+    <string name="label_line3">Line 3</string>
+    <string name="label_barcode">Barcode / QR data</string>
+    <string name="label_size">Label size</string>
+    <string name="label_language">Command language</string>
+    <string name="label_printer">Printer</string>
+    <string name="label_no_printers">No label or receipt printers saved yet. Pair one over Bluetooth, then save it on the Print tab.</string>
+    <string name="label_job_name">Label</string>
+    <string name="label_print">Print label</string>
+    <string name="label_help">The barcode is always generated by the printer\'s own firmware rather than sent as an image, which lands the bars on exact dot boundaries and keeps them scannable at small sizes.\n\nText uses the printer\'s built-in fonts when it can. Those fonts hold Latin characters and nothing else, so anything they cannot carry - Hindi, Arabic, Thai, Chinese - is laid out on the phone and sent as an image instead. That takes a little longer over Bluetooth and prints correctly, rather than being fast and full of question marks.</string>
+
+    <!-- Printers screen -->
+    <string name="hibernation_warning">Android will switch PocketPrint off if it is not opened for about three months, and take its Bluetooth permission with it. Printing from other apps does not count as opening it - so the next print from Gmail would simply fail, inside Gmail, with nothing able to explain why. Turning off \"pause app activity if unused\" prevents it.</string>
+    <string name="local_network_blocked_warning">PocketPrint cannot reach printers on your network, because permission to use the local network was turned down. Android will not ask again, so it has to be granted in app settings. Bluetooth and USB printers are unaffected.</string>
+    <string name="bluetooth_blocked_warning">PocketPrint cannot see or reach Bluetooth printers, because the Bluetooth permission was turned down. Android will not ask again, so it has to be granted in app settings.</string>
+    <string name="printers_document">Document</string>
+    <string name="printers_no_document">No document selected</string>
+    <string name="printers_choose_file">Choose file</string>
+    <string name="printers_paper">Paper</string>
+    <string name="printers_options">Options</string>
+    <plurals name="printers_copies">
+        <item quantity="one">%1$d copy</item>
+        <item quantity="other">%1$d copies</item>
+    </plurals>
+    <string name="printers_colour">Colour</string>
+    <string name="printers_mono">Black &amp; white</string>
+    <string name="printers_saved">SAVED PRINTERS</string>
+    <string name="printers_add_manually">Add printer manually</string>
+    <string name="printers_none_saved">No saved printers yet. Scan below, or add one by IP address.</string>
+    <string name="printers_preview">Preview</string>
+    <string name="printers_settings">Printer settings</string>
+    <string name="printers_remove">Remove</string>
+    <string name="printers_choose_document_first">Choose a document first</string>
+    <string name="printers_tap_to_print">Tap to print</string>
+    <string name="printers_discovered">DISCOVERED</string>
+    <string name="printers_scan">Scan</string>
+    <string name="printers_nothing_found">Nothing found yet. Wi-Fi printers must be on the same network; Bluetooth printers must already be paired in Android Settings.</string>
+    <string name="printers_confirmed">Confirmed by a test label</string>
+    <string name="printers_system_printing">System printing</string>
+    <string name="print_service_enabled">PocketPrint is switched on as a print service. Saved printers appear in every app\'s print dialog, including Bluetooth ones.</string>
+    <string name="print_service_disabled">PocketPrint is not switched on as a print service, so it will not appear in other apps\' print dialogs. Turn it on under Settings &gt; Connected devices &gt; Printing.</string>
+    <string name="print_service_unknown">To print from other apps, turn PocketPrint on under Settings &gt; Connected devices &gt; Printing. Saved printers appear in every app\'s print dialog, including Bluetooth ones. This version of Android will not tell PocketPrint whether the switch is already on.</string>
+    <string name="report_clip_label">PocketPrint report</string>
+    <string name="report_copied">Printer report copied</string>
+
+    <!-- Add a printer by address -->
+    <string name="add_printer_title">Add printer by address</string>
+    <string name="add_printer_name">Name (optional)</string>
+    <string name="add_printer_host">IP address or hostname</string>
+    <string name="add_printer_ipp">IPP / AirPrint</string>
+    <string name="add_printer_raw">Raw 9100</string>
+    <string name="add_printer_port">Port</string>
+    <string name="add_printer_add">Add</string>
+
+    <!-- What a failure means, as opposed to what the transport said.
+         The raw message is never replaced by these: it is what makes a printer
+         report useful, and it stays in English because that is where it gets
+         pasted. These are the sentence above it. -->
+    <string name="job_error_asleep">The printer closed the connection part way through. Thermal printers sleep aggressively - wake it and try again.</string>
+    <string name="job_error_stalled">The printer stopped taking bytes without closing the connection, which usually means it is out of paper, its cover is open, or it is waiting at a fault it has not reported.</string>
+    <string name="job_error_bluetooth_off">Turn Bluetooth on and try again.</string>
+    <string name="job_error_bluetooth_permission">PocketPrint needs the Bluetooth permission to reach this printer. Grant it in Android\'s app settings.</string>
+    <string name="job_error_refused">The printer answered but is not listening on that port. Check the port number - raw printing is usually 9100, IPP is 631.</string>
+    <string name="job_error_timeout">The printer did not answer. Check it is switched on, and that it is in range or on the same network.</string>
+    <string name="job_error_unreachable">That address cannot be reached from this network. A printer on a different subnet, or a phone on mobile data rather than Wi-Fi, will both look like this.</string>
+    <string name="job_error_busy">Something else is already connected to this printer. These printers accept one connection at a time.</string>
+    <string name="job_error_pairing">Pairing failed. Remove the printer in Android\'s Bluetooth settings and pair it again - the PIN is usually 0000.</string>
+    <string name="job_error_no_printer">That printer is no longer saved. Set it up again.</string>
+    <string name="job_error_out_of_media">The printer reports it is out of media.</string>
+
+    <!-- Job outcomes and progress.
+         The IPP job-state names and job-state-reasons keywords that some of
+         these carry are protocol vocabulary, like the dialect names, and are
+         left as the protocol spells them. -->
+    <string name="unconfirmed_bluetooth">Bluetooth printing carries no acknowledgement. The printer accepted the bytes; only the label tells you what it did with them.</string>
+    <string name="unconfirmed_usb">USB printing carries no acknowledgement. The printer accepted the bytes; only the page tells you what it did with them.</string>
+    <string name="unconfirmed_raw">Raw port 9100 carries no acknowledgement. The printer accepted the bytes; only the page tells you what it did with them.</string>
+    <string name="unconfirmed_ipp">The printer accepted the job but never said what became of it.</string>
+    <string name="ipp_no_job_id">The printer accepted the job but gave it no id, so its progress cannot be followed.</string>
+    <string name="ipp_stopped_answering">The printer stopped answering questions about job %1$d, so what became of it is unknown.</string>
+    <string name="ipp_job_forgotten">The printer no longer has a record of job %1$d. That usually means it finished, but the printer never said so.</string>
+    <string name="ipp_refused_to_report">The printer refused to report on job %1$d (%2$s).</string>
+    <string name="ipp_still_working">The printer was still %1$s after %2$s, so it was left to get on with it.</string>
+    <string name="ipp_working_on_it">working on the job</string>
+    <string name="ipp_job_ended">The printer %1$s the job</string>
+    <string name="ipp_job_ended_because">The printer %1$s the job: %2$s</string>
+    <string name="printer_rejected_job">Printer rejected job: %1$s</string>
+    <string name="printer_rejected_unsupported">Printer rejected job: %1$s (unsupported: %2$s)</string>
+    <string name="queue_waiting">Waiting for another job on %1$s to finish</string>
+    <plurals name="duration_minutes">
+        <item quantity="one">%1$d minute</item>
+        <item quantity="other">%1$d minutes</item>
+    </plurals>
+    <plurals name="duration_seconds">
+        <item quantity="one">%1$d second</item>
+        <item quantity="other">%1$d seconds</item>
+    </plurals>
+
+    <!-- The print job notification -->
+    <string name="notification_job">Print job</string>
+    <string name="notification_preparing">Preparing</string>
+    <string name="notification_unknown_printer">Unknown printer</string>
+    <string name="notification_printer_not_found">Printer not found</string>
+    <string name="notification_connecting">Connecting to %1$s</string>
+    <string name="notification_sending">Sending to %1$s</string>
+    <string name="notification_printer_status">%1$s: %2$s</string>
+    <string name="notification_printed">%1$s printed it</string>
+    <string name="notification_sent_unconfirmed">Sent to %1$s - not confirmed</string>
+    <string name="notification_stopped_title">Print job stopped</string>
+    <string name="notification_stopped_body">Android stopped this job because it ran too long.</string>
+    <string name="job_cancelled">Cancelled before the job finished</string>
+
+    <!-- Failures handed back to another app\'s print dialog -->
+    <string name="system_no_printer_selected">No printer was selected</string>
+    <string name="system_document_unreadable">Could not read the document from the print system</string>
+    <string name="system_printer_gone">That printer is no longer saved in PocketPrint</string>
+    <string name="system_print_failed">Printing failed</string>
+    <string name="system_waiting_for_printer">Waiting for another job on %1$s</string>
+
+    <!-- Auto setup -->
+    <string name="setup_step_connect">Pair and connect</string>
+    <string name="setup_step_detect">Ask the printer what it speaks</string>
+    <string name="setup_step_configure">Work out label size and head width</string>
+    <string name="setup_step_test">Print a test label</string>
+    <string name="setup_step_save">Save and offer to Android</string>
+    <string name="setup_detect_confirmed">%1$s confirmed by the printer</string>
+    <string name="setup_detect_confirmed_model">%1$s confirmed by the printer (%2$s)</string>
+    <string name="setup_detect_assumed">No reply, so %1$s assumed from the name</string>
+    <string name="setup_configured">%1$s, %2$d dpi, %3$d dots wide</string>
+    <string name="setup_test_sent">Sent to the printer</string>
+    <string name="setup_saved">Now offered in every app\'s print dialog</string>
+
+    <!-- In-app label and job messages -->
+    <string name="label_sending">Sending %1$d bytes to %2$s…</string>
+    <string name="label_printed">%1$s printed %2$d bytes</string>
+    <string name="label_sent">Sent %1$d bytes. %2$s</string>
+    <string name="label_failed">Failed: %1$s</string>
+    <string name="calibrate_unsupported">%1$s has no media sensor to calibrate.</string>
+    <string name="reprint_printer_gone">%1$s is no longer saved, so this job cannot be repeated.</string>
+    <string name="reprint_too_old">This job was printed before PocketPrint kept enough to repeat it.</string>
+    <string name="reprint_document_gone">The copy of %1$s has been cleared from the cache, so it has to be chosen again.</string>
+    <string name="reprint_started">Printing %1$s again on %2$s.</string>
+    <string name="preview_not_applicable">%1$s takes the document as it is, so there is nothing here that the document itself does not already show. Preview is for printers that reduce a page to one bit per dot.</string>
+    <string name="preview_failed">The page could not be rendered.</string>
+
+    <!-- Share target -->
+    <string name="share_multiple">PocketPrint prints one document at a time; using the first of %1$d shared files.</string>
+    <string name="share_not_a_file">PocketPrint accepts shared files, not raw file paths.</string>
+    <string name="share_unreadable">That file could not be read: %1$s</string>
+    <string name="share_cannot_print">PocketPrint can\'t print %1$s (%2$s).</string>
+    <string name="share_too_large">%1$s is over the %2$d MB limit for a print job.</string>
+    <string name="share_too_slow">%1$s took too long to read; nothing was printed.</string>
+    <string name="share_text_truncated">That text is very long; printing the first %1$d characters.</string>
 </resources>

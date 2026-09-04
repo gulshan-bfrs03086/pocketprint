@@ -327,22 +327,7 @@ class BluetoothTransport(
 
     override suspend fun readAvailable(timeoutMs: Long): ByteArray = withContext(Dispatchers.IO) {
         val input: InputStream = socket?.inputStream ?: return@withContext ByteArray(0)
-        val deadline = System.currentTimeMillis() + timeoutMs
-        val collected = java.io.ByteArrayOutputStream()
-        try {
-            while (System.currentTimeMillis() < deadline) {
-                if (input.available() > 0) {
-                    val buf = ByteArray(input.available().coerceAtMost(1024))
-                    val n = input.read(buf)
-                    if (n > 0) collected.write(buf, 0, n)
-                } else {
-                    Thread.sleep(25)
-                }
-            }
-        } catch (_: Throwable) {
-            // Status reads are best effort.
-        }
-        collected.toByteArray()
+        readAvailableFrom(input, timeoutMs)
     }
 
     override fun close() {

@@ -41,6 +41,31 @@ fun InfoBanner(text: String, modifier: Modifier = Modifier) {
     }
 }
 
+/**
+ * For things that have gone wrong and that the user needs to know about, as
+ * opposed to things they might like to know. Deliberately louder than
+ * [InfoBanner]: the one case this exists for is data the app could not read
+ * back, which the user has no other way of finding out about.
+ */
+@Composable
+fun WarningBanner(text: String, modifier: Modifier = Modifier) {
+    Column(
+        modifier
+            .fillMaxWidth()
+            .background(
+                MaterialTheme.colorScheme.errorContainer,
+                MaterialTheme.shapes.medium,
+            )
+            .padding(12.dp),
+    ) {
+        Text(
+            text,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onErrorContainer,
+        )
+    }
+}
+
 /** Horizontally scrolling single-select chip row. */
 @Composable
 fun <T> ChipRow(

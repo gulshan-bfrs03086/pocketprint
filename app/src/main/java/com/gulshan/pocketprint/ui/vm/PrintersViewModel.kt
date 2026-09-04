@@ -4,8 +4,12 @@ import android.app.Application
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.gulshan.pocketprint.R
 import com.gulshan.pocketprint.ServiceLocator
 import com.gulshan.pocketprint.data.AppSettings
+import com.gulshan.pocketprint.data.StorageHealth
+import com.gulshan.pocketprint.permissions.AppHealth
+import com.gulshan.pocketprint.permissions.AppPermissions
 import com.gulshan.pocketprint.label.EscPos
 import com.gulshan.pocketprint.label.Tspl
 import com.gulshan.pocketprint.label.Zpl
@@ -20,9 +24,13 @@ import com.gulshan.pocketprint.model.Printer
 import com.gulshan.pocketprint.model.PrinterAddress
 import com.gulshan.pocketprint.model.PrinterCapabilities
 import com.gulshan.pocketprint.model.SourceDocument
+import com.gulshan.pocketprint.print.Diagnostics
+import com.gulshan.pocketprint.print.JobListener
 import com.gulshan.pocketprint.print.PrintForegroundService
 import com.gulshan.pocketprint.print.PrinterAutoSetup
+import com.gulshan.pocketprint.print.PrinterReport
 import com.gulshan.pocketprint.print.SetupProgress
+import com.gulshan.pocketprint.print.TestLabelOutcome
 import com.gulshan.pocketprint.render.Spool
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -31,11 +39,27 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import java.io.File
+
+/**
+ * A rendered preview, or the reason there is not one.
+ *
+ * The bitmap is the packed one-bit raster read back, not a second rendering of
+ * the source - so it shows the dithering and the lost hairlines rather than
+ * hiding them.
+ */
+data class PreviewState(
+    val printerName: String,
+    val loading: Boolean,
+    val bitmap: android.graphics.Bitmap? = null,
+    val message: String? = null,
+)
 
 data class DiscoveryState(
     val scanning: Boolean = false,
@@ -54,6 +78,13 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
     private val settingsRepo = ServiceLocator.settingsRepository(app)
     private val engine = ServiceLocator.printEngine(app)
 
+    /**
+     * Anything the app saved and can no longer read. Empty in every normal
+     * session; shown loudly when it is not, because the user has no other way
+     * of finding out that a saved printer went missing.
+     */
+    val storageProblems: StateFlow<Map<String, String>> = StorageHealth.problems
+
     private val _discovery = MutableStateFlow(DiscoveryState())
     val discovery: StateFlow<DiscoveryState> = _discovery.asStateFlow()
 
@@ -67,6 +98,13 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
     val options: StateFlow<PrintOptions> = _options.asStateFlow()
 
     private var scanJob: Job? = null
+
+    /** One line of feedback for the history screen. */
+    private val _jobsMessage = MutableStateFlow<String?>(null)
+    val jobsMessage: StateFlow<String?> = _jobsMessage.asStateFlow()
+
+    private val _preview = MutableStateFlow<PreviewState?>(null)
+    val preview: StateFlow<PreviewState?> = _preview.asStateFlow()
 
     private val _setup = MutableStateFlow<SetupProgress?>(null)
     val setup: StateFlow<SetupProgress?> = _setup.asStateFlow()
@@ -83,6 +121,16 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
 
     val settings: StateFlow<AppSettings> = settingsRepo.settings
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AppSettings())
+
+    /**
+     * Null until the stored settings have actually been read.
+     *
+     * Without the third state the welcome screen flashes up for every existing
+     * user on every launch, for as long as it takes DataStore to answer.
+     */
+    val firstRunDone: StateFlow<Boolean?> = settingsRepo.settings
+        .map { it.firstRunDone }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     init {
         viewModelScope.launch { _options.value = settingsRepo.current().toPrintOptions() }
@@ -197,7 +245,7 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
 
         val bytes = when (language) {
             PrintLanguage.TSPL -> Tspl(media, dpi).apply {
-                setup(density = _options.value.density)
+                setup(printer.stock)
                 text(20, 20, "POCKETPRINT TEST", font = "3")
                 text(20, 70, "TSPL  ${media.label}", font = "2")
                 text(20, 105, "${dpi} dpi  ${width} dots", font = "2")
@@ -207,7 +255,7 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
             }.build()
 
             PrintLanguage.ZPL -> Zpl(media, dpi).apply {
-                start(density = _options.value.density)
+                start(printer.stock)
                 text(20, 20, "POCKETPRINT TEST", height = 36, width = 36)
                 text(20, 70, "ZPL  ${media.label}", height = 26, width = 26)
                 text(20, 105, "${dpi} dpi  ${width} dots", height = 26, width = 26)
@@ -270,22 +318,29 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---- documents and printing ---------------------------------------------
 
-    fun selectDocument(uri: Uri) = viewModelScope.launch {
-        _selectedDocument.value = Spool.describe(getApplication(), uri)
-    }
-
     /**
-     * Same as [selectDocument], but copies the content immediately. An
-     * ACTION_SEND grant is scoped to the receiving activity and is gone by the
-     * time the print service opens the URI, so the bytes must be taken now.
+     * Takes a document the user picked, and takes a copy of it.
+     *
+     * The copy is not an optimisation. A read grant from the file picker lives
+     * only as long as this process, so a job reprinted tomorrow from history
+     * would find a URI it is no longer allowed to open - and the copy is
+     * bounded in size and time, so it costs nothing surprising.
      */
-    fun selectSharedDocument(uri: Uri) = viewModelScope.launch {
+    fun selectDocument(uri: Uri) = viewModelScope.launch {
         val described = Spool.describe(getApplication(), uri)
         _selectedDocument.value = runCatching {
             val suffix = described.extension.takeIf { it.isNotBlank() }?.let { ".$it" } ?: ".bin"
             val local = Spool.copyToCache(getApplication(), uri, suffix)
             described.copy(uri = Uri.fromFile(local).toString(), sizeBytes = local.length())
-        }.getOrElse { described }
+        }.getOrElse { failure ->
+            // Still printable this session against the original grant; just not
+            // reprintable once the grant is gone.
+            Diagnostics.record(
+                "Spool",
+                "could not copy ${described.displayName}: ${failure.message}",
+            )
+            described
+        }
     }
 
     fun setDocument(document: SourceDocument?) { _selectedDocument.value = document }
@@ -345,15 +400,31 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
      * switched off no longer shows as a success.
      */
     fun printRawLabel(printer: Printer, bytes: ByteArray, name: String) = viewModelScope.launch {
-        _labelStatus.value = "Sending ${bytes.size} bytes to ${printer.displayName}..."
+        val app = getApplication<android.app.Application>()
+        _labelStatus.value =
+            app.getString(R.string.label_sending, bytes.size, printer.displayName)
         val jobId = java.util.UUID.randomUUID().toString()
         val startedAt = System.currentTimeMillis()
 
-        val result = engine.printRaw(printer, bytes, name, _options.value)
+        val result = engine.printRaw(
+            printer, bytes, name, _options.value,
+            JobListener(
+                onStatus = { status ->
+                    _labelStatus.value = app.getString(
+                        R.string.notification_printer_status, printer.displayName, status,
+                    )
+                },
+            ),
+        )
 
         _labelStatus.value = when (result) {
-            is PrintResult.Success -> "Sent ${result.bytesSent} bytes to ${printer.displayName}"
-            is PrintResult.Failure -> "Failed: ${result.message}"
+            is PrintResult.Completed -> app.getString(
+                R.string.label_printed, printer.displayName, result.bytesSent.toInt(),
+            )
+            is PrintResult.Sent -> app.getString(
+                R.string.label_sent, result.bytesSent.toInt(), result.reason,
+            )
+            is PrintResult.Failure -> app.getString(R.string.label_failed, result.message)
         }
 
         jobRepo.upsert(
@@ -362,12 +433,113 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
                 printerId = printer.id,
                 printerName = printer.displayName,
                 documentName = name,
-                state = if (result is PrintResult.Success) JobState.COMPLETED else JobState.FAILED,
+                state = when (result) {
+                    is PrintResult.Completed -> JobState.COMPLETED
+                    is PrintResult.Sent -> JobState.SENT
+                    is PrintResult.Failure -> JobState.FAILED
+                },
                 createdAtEpochMs = startedAt,
                 finishedAtEpochMs = System.currentTimeMillis(),
-                bytesSent = (result as? PrintResult.Success)?.bytesSent ?: 0L,
+                bytesSent = (result as? PrintResult.Delivered)?.bytesSent ?: 0L,
                 error = (result as? PrintResult.Failure)?.message,
+                note = (result as? PrintResult.Sent)?.reason,
             ),
+        )
+    }
+
+    /**
+     * Asks the print service to stop a job that is still running.
+     *
+     * Only the service's own jobs can be stopped this way, which is every job
+     * that can still be seen running: an in-app label writes its history row
+     * only once it is over, so a label job is never on screen while it could
+     * still be cancelled.
+     */
+    fun cancelJob(job: PrintJobRecord) {
+        PrintForegroundService.requestCancel(getApplication(), job.id)
+    }
+
+    /** Pasteable diagnostics for one printer. See [PrinterReport]. */
+    fun printerReport(printer: Printer): String = PrinterReport.build(
+        printer = printer,
+        jobs = jobs.value,
+        health = PrinterReport.Health(
+            hibernation = AppHealth.hibernation(getApplication()),
+            ignoresBatteryOptimisation = AppHealth.ignoresBatteryOptimisation(getApplication()),
+        ),
+    )
+
+    /**
+     * Runs the printer's own media calibration.
+     *
+     * The printer feeds a few labels while it finds the gaps, which is a real
+     * cost - so it is a button somebody presses, not something done for them.
+     * The alternative when registration has drifted is a roll printed half on
+     * one label and half on the next while somebody guesses at gap heights.
+     */
+    fun calibrate(printer: Printer) = viewModelScope.launch {
+        val media = printer.capabilities.mediaSizes.firstOrNull() ?: MediaSize.LABEL_4X6
+        val dpi = printer.capabilities.resolutionsDpi.firstOrNull() ?: 203
+
+        val bytes = when (printer.capabilities.languages.firstOrNull()) {
+            PrintLanguage.TSPL -> Tspl(media, dpi).calibrate(printer.stock).build()
+            PrintLanguage.ZPL -> Zpl(media, dpi).calibrate(printer.stock).build()
+            else -> {
+                _labelStatus.value = getApplication<android.app.Application>()
+                    .getString(R.string.calibrate_unsupported, printer.displayName)
+                return@launch
+            }
+        }
+        printRawLabel(printer, bytes, "Calibrate")
+    }
+
+    fun clearJobsMessage() { _jobsMessage.value = null }
+
+    /**
+     * Runs a finished job again, on the same printer with the same options.
+     *
+     * "The printer was asleep, the job failed, switch it on, print it again" is
+     * the commonest sequence there is with these printers, and it used to mean
+     * finding the file again and re-picking every option - by which point the
+     * options are a guess at what they were the first time.
+     */
+    fun reprint(record: PrintJobRecord) = viewModelScope.launch {
+        val printer = printerRepo.find(record.printerId)
+        if (printer == null) {
+            _jobsMessage.value = getApplication<android.app.Application>()
+                .getString(R.string.reprint_printer_gone, record.printerName)
+            return@launch
+        }
+
+        val uri = record.documentUri
+        val options = record.options
+        if (uri.isNullOrBlank() || options == null) {
+            _jobsMessage.value = getApplication<android.app.Application>()
+                .getString(R.string.reprint_too_old)
+            return@launch
+        }
+
+        // A cached copy can be evicted by Android, or cleared from Settings.
+        val local = runCatching { Uri.parse(uri).path?.let(::File) }.getOrNull()
+        if (uri.startsWith("file://") && local?.exists() != true) {
+            _jobsMessage.value = getApplication<android.app.Application>()
+                .getString(R.string.reprint_document_gone, record.documentName)
+            return@launch
+        }
+
+        PrintForegroundService.start(
+            context = getApplication(),
+            printerId = printer.id,
+            document = SourceDocument(
+                uri = uri,
+                displayName = record.documentName,
+                mimeType = record.documentMimeType ?: "application/octet-stream",
+                sizeBytes = local?.length() ?: -1L,
+            ),
+            options = options,
+        )
+        _jobsMessage.value = getApplication<android.app.Application>().getString(
+            R.string.reprint_started, record.documentName, printer.displayName,
         )
     }
 
@@ -386,6 +558,101 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /**
+     * Records what the person holding the printer saw after the test label.
+     *
+     * This is the only confirmation a Bluetooth or USB printer can produce.
+     * The protocol cannot help: asked directly, a printer with the wrong stock
+     * loaded reports paper present, head down and no error, and feeds a blank
+     * label quite happily.
+     */
+    fun recordTestLabelOutcome(outcome: TestLabelOutcome) = viewModelScope.launch {
+        val printer = _setup.value?.printer ?: return@launch
+        val updated = printer.copy(testPrintConfirmed = outcome == TestLabelOutcome.CORRECT)
+        printerRepo.save(updated)
+        _setup.value = _setup.value?.copy(printer = updated)
+    }
+
+    /**
+     * The other dialect this printer might be listening in, or null when there
+     * is no sensible alternative to offer.
+     */
+    fun alternateDialect(printer: Printer): PrintLanguage? =
+        when (printer.capabilities.languages.firstOrNull()) {
+            PrintLanguage.TSPL -> PrintLanguage.ZPL
+            PrintLanguage.ZPL -> PrintLanguage.TSPL
+            else -> null
+        }
+
+    /**
+     * Switches a label printer to the other dialect and prints another test.
+     *
+     * Garbled output means the printer is not listening in the language it was
+     * sent, and for these printers there are only two candidates - so the fix
+     * is one tap away rather than a hunt through the settings screen.
+     */
+    fun retestWithOtherDialect() = viewModelScope.launch {
+        val printer = _setup.value?.printer ?: return@launch
+        val other = alternateDialect(printer) ?: return@launch
+        val updated = printer.copy(
+            capabilities = printer.capabilities.copy(languages = listOf(other)),
+            testPrintConfirmed = false,
+        )
+        printerRepo.save(updated)
+        _setup.value = _setup.value?.copy(printer = updated)
+        printTestPage(updated)
+    }
+
+    /**
+     * Renders the first page the way the chosen printer will mark it.
+     *
+     * Per printer rather than per document, because the answer depends entirely
+     * on the printer: its dialect decides whether there is anything to show,
+     * and its head width and dpi decide what the page is squeezed into.
+     */
+    fun previewOn(printer: Printer) = viewModelScope.launch {
+        val document = _selectedDocument.value ?: return@launch
+        _preview.value = PreviewState(printerName = printer.displayName, loading = true)
+
+        val outcome = runCatching { engine.preview(printer, document, _options.value) }
+        _preview.value = outcome.fold(
+            onSuccess = { bitmap ->
+                PreviewState(
+                    printerName = printer.displayName,
+                    loading = false,
+                    bitmap = bitmap,
+                    message = if (bitmap == null) {
+                        getApplication<android.app.Application>()
+                            .getString(R.string.preview_not_applicable, printer.displayName)
+                    } else {
+                        null
+                    },
+                )
+            },
+            onFailure = { failure ->
+                PreviewState(
+                    printerName = printer.displayName,
+                    loading = false,
+                    message = failure.message
+                        ?: getApplication<android.app.Application>()
+                            .getString(R.string.preview_failed),
+                )
+            },
+        )
+    }
+
+    fun dismissPreview() { _preview.value = null }
+
+    /**
+     * Takes a printer the system's device picker just paired and runs setup on
+     * it, so pairing and bring-up are one gesture rather than two screens in
+     * two apps with a hunt in between.
+     */
+    fun adoptPairedPrinter(printer: Printer) = viewModelScope.launch {
+        printerRepo.save(printer)
+        startAutoSetup(printer)
+    }
+
     fun dismissSetup() { _setup.value = null }
 
     fun setSetupStock(media: MediaSize) { _setupStock.value = media }
@@ -393,6 +660,23 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
     /** Paired Bluetooth devices are the only sensible auto-setup targets. */
     fun autoSetupCandidates(): List<Printer> =
         ServiceLocator.bluetoothDiscovery(getApplication()).bondedDevices()
+
+    fun completeFirstRun() = updateSettings { it.copy(firstRunDone = true) }
+
+    /**
+     * Remembers that a permission was actually put to the user, which is what
+     * separates "never asked" from "refused for good".
+     */
+    fun rememberAsked(permissions: List<String>) = updateSettings { current ->
+        current.copy(
+            askedForBluetooth = current.askedForBluetooth ||
+                permissions.any { it in AppPermissions.bluetooth },
+            askedForNotifications = current.askedForNotifications ||
+                permissions.any { it in AppPermissions.notifications },
+            askedForLocalNetwork = current.askedForLocalNetwork ||
+                permissions.any { it in AppPermissions.localNetwork },
+        )
+    }
 
     fun updateSettings(transform: (AppSettings) -> AppSettings) = viewModelScope.launch {
         settingsRepo.update(transform)

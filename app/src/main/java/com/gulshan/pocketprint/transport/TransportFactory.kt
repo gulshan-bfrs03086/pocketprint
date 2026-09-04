@@ -16,7 +16,7 @@ object TransportFactory {
 
     fun create(context: Context, printer: Printer): PrinterTransport =
         when (val a = printer.address) {
-            is PrinterAddress.Raw -> RawSocketTransport(a)
+            is PrinterAddress.Raw -> RawSocketTransport(a, context = context.applicationContext)
             // A Bluetooth printer is reached over RFCOMM or over GATT depending
             // on its radio; AUTO probes and falls back so an LE-only printer no
             // longer dies on an RFCOMM socket timeout.

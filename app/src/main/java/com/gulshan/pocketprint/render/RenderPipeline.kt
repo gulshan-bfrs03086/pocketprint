@@ -1,6 +1,7 @@
 package com.gulshan.pocketprint.render
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.net.Uri
 import com.gulshan.pocketprint.label.EscPos
 import com.gulshan.pocketprint.label.Tspl
@@ -29,7 +30,7 @@ class RenderPipeline(
     private val officeConverter: () -> OfficeConverter = { NoOfficeConverter },
 ) {
 
-    private val rawLabelExtensions = setOf("tspl", "zpl", "escpos", "prn", "bin")
+    private val rawLabelExtensions = RAW_LABEL_EXTENSIONS
 
     suspend fun render(
         source: SourceDocument,
@@ -47,6 +48,54 @@ class RenderPipeline(
 
         val pdf = toPdf(source, options)
         return convert(pdf, target, printer, options)
+    }
+
+    /**
+     * The first page exactly as a thermal printer will mark it.
+     *
+     * Nothing showed this before, and the system print dialog's preview is no
+     * substitute: it shows the source PDF, not what happens to it on the way to
+     * a one-bit head. Everything that goes wrong between the two - a photo that
+     * dithers to mud, hairlines that fall below the threshold and vanish, a
+     * page scaled to a 4-inch head - is invisible until a label has been
+     * consumed finding out.
+     *
+     * The pipeline already produced this exact bitmap on every print and threw
+     * it away, so the only new thing here is keeping it.
+     *
+     * Null for printers that take PDF or PWG raster directly: those receive the
+     * document essentially as it is, so there is nothing this could show that
+     * the document itself does not.
+     */
+    suspend fun previewFirstPage(
+        source: SourceDocument,
+        printer: Printer,
+        options: PrintOptions,
+    ): Bitmap? = withContext(Dispatchers.IO) {
+        val target = chooseLanguage(printer)
+        if (!target.isRaster || target == PrintLanguage.PWG_RASTER) return@withContext null
+
+        val pdf = toPdf(source, options)
+        try {
+            val width = printer.capabilities.rasterWidthDots ?: 576
+            val dpi = printer.capabilities.resolutionsDpi.firstOrNull() ?: 203
+            var preview: Bitmap? = null
+            PdfRasterizer.forEachPage(
+                file = pdf.file,
+                dpi = dpi,
+                targetWidthPx = width,
+                pageRange = 1..1,
+            ) { _, page ->
+                // Same call the encoders make, with the same dither setting, so
+                // this is the stream's own bits rather than a second rendering
+                // that might disagree with it.
+                val packed = Raster.toPackedMono(page, dither = options.dither)
+                preview = Raster.fromPackedMono(packed, page.width, page.height)
+            }
+            preview
+        } finally {
+            pdf.cleanupIfTemporary()
+        }
     }
 
     /** Renders already-prepared PDF bytes, used by the system print service. */
@@ -127,6 +176,35 @@ class RenderPipeline(
                 "Don't know how to print ${source.displayName} (${source.mimeType})",
             )
         }
+    }
+
+    companion object {
+        /** Command files for the printer itself, passed through untouched. */
+        val RAW_LABEL_EXTENSIONS = setOf("tspl", "zpl", "escpos", "prn", "bin")
+
+        /**
+         * Whether [toPdf] has a branch for this document at all.
+         *
+         * The exported share target needs to answer that question before it
+         * copies a byte, so it can refuse an unprintable file at the door
+         * rather than four layers down with a message about opening a stream.
+         * Kept beside [toPdf] and built from the same constants so the two
+         * cannot drift into disagreeing.
+         */
+        fun canRender(mimeType: String, extension: String): Boolean = when {
+            extension in RAW_LABEL_EXTENSIONS -> true
+            mimeType == SourceDocument.MIME_URL -> true
+            mimeType == "application/pdf" || extension == "pdf" -> true
+            mimeType.startsWith("image/") -> true
+            mimeType.startsWith("text/") -> true
+            extension in TEXTUAL_EXTENSIONS -> true
+            extension in OfficeConverter.OFFICE_EXTENSIONS -> true
+            OfficeConverter.OFFICE_MIME_PREFIXES.any { mimeType.startsWith(it) } -> true
+            else -> false
+        }
+
+        private val TEXTUAL_EXTENSIONS =
+            setOf("html", "htm", "txt", "log", "csv", "md")
     }
 
     private suspend fun convert(
@@ -212,7 +290,10 @@ class RenderPipeline(
             pdf.file, dpi = dpi, targetWidthPx = width, pageRange = options.pageRange,
         ) { _, bitmap ->
             val builder = Tspl(media, dpi)
-                .setup(density = options.density)
+                // From the printer, not the job: this describes the roll that
+                // is physically loaded and how hard the head has to burn for
+                // it, neither of which changes with the document.
+                .setup(printer.stock)
                 .image(0, 0, bitmap, dither = options.dither)
             builder.print(sets = 1, copies = options.copies.coerceAtLeast(1))
             buffer.write(builder.build())
@@ -237,7 +318,7 @@ class RenderPipeline(
             pdf.file, dpi = dpi, targetWidthPx = width, pageRange = options.pageRange,
         ) { _, bitmap ->
             val builder = Zpl(media, dpi)
-                .start(density = options.density)
+                .start(printer.stock)
                 .image(0, 0, bitmap, dither = options.dither)
             builder.end(copies = options.copies.coerceAtLeast(1))
             buffer.write(builder.build())
@@ -263,14 +344,21 @@ class RenderPipeline(
         val out = Spool.newFile(context, suffix)
         val bytes = buffer.toByteArray()
         out.outputStream().use { it.write(bytes) }
+        com.gulshan.pocketprint.print.Diagnostics.record(
+            "StreamDiag",
+            "built ${bytes.size} bytes of $language over $pages page(s)",
+        )
         if (com.gulshan.pocketprint.BuildConfig.DEBUG) {
+            // Keeping a copy of what was sent is a debug-build affordance only:
+            // it is the user's document, and it does not belong on external
+            // storage on somebody's phone.
             runCatching {
                 val dir = context.getExternalFilesDir(null)
                 val dump = File(dir, "last-stream$suffix")
                 dump.outputStream().use { it.write(bytes) }
-                android.util.Log.i(
+                com.gulshan.pocketprint.print.Diagnostics.record(
                     "StreamDiag",
-                    "wrote ${bytes.size} bytes of $language to ${dump.absolutePath}",
+                    "dumped the stream to ${dump.absolutePath}",
                 )
             }
         }

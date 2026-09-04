@@ -66,6 +66,72 @@ CI runs on `main`, on every `release/**` push and on every `v*` tag. Checking a
 release branch only when it merges means checking it after the decision to ship
 has already been made.
 
+## Signing
+
+Releases are signed with a key that is not in this repository and never will
+be. Until one is configured, `assembleRelease` produces
+`app-<flavour>-release-unsigned.apk` and the release workflow refuses to start.
+That is deliberate: the fallback is not the debug key. An APK signed with
+Android's public debug keystore looks signed and is not — anyone at all can
+build an update that installs over a user's copy and inherits the enabled print
+service, which sees every document they print.
+
+### The key, once
+
+```bash
+keytool -genkeypair -v -keystore pocketprint-release.jks \
+  -alias pocketprint -keyalg RSA -keysize 4096 -validity 10000
+```
+
+Keep that file and its passwords somewhere they will still exist in ten years.
+Losing the key is not recoverable: the package manager refuses an update signed
+by a different key, so every existing install would have to be uninstalled and
+reinstalled, taking its data with it.
+
+### Signing locally
+
+Either put `keystore.properties` at the repository root — gitignored, and the
+keystore it points at is too:
+
+```properties
+storeFile=/absolute/path/to/pocketprint-release.jks
+storePassword=...
+keyAlias=pocketprint
+keyPassword=...
+```
+
+...or set the same four as `POCKETPRINT_KEYSTORE`,
+`POCKETPRINT_KEYSTORE_PASSWORD`, `POCKETPRINT_KEY_ALIAS` and
+`POCKETPRINT_KEY_PASSWORD` in the environment.
+
+### Signing on CI
+
+Four repository secrets, the first of which is the keystore itself:
+
+```bash
+base64 -i pocketprint-release.jks | pbcopy   # -> POCKETPRINT_KEYSTORE_BASE64
+```
+
+plus `POCKETPRINT_KEYSTORE_PASSWORD`, `POCKETPRINT_KEY_ALIAS` and
+`POCKETPRINT_KEY_PASSWORD`.
+
+Pushing a `vX.Y.Z` tag then runs `.github/workflows/release.yml`: tests both
+variants, builds and signs both flavours, checks neither declares a required
+hardware feature, prints the signing certificate's fingerprints into the log so
+a published APK can be checked against them, and **drafts** a release carrying
+the two APKs and their SHA-256 sums. It never publishes — someone reads the
+draft and presses the button. `workflow_dispatch` does all of that except touch
+the Releases page, which makes it a usable dry run.
+
+### The first signed release installs alongside, not over
+
+Everything published so far was a *debug* build, and debug builds carry
+`applicationId com.gulshan.pocketprint.debug`. A release build is
+`com.gulshan.pocketprint`, so to Android it is a different package: it installs
+next to the old one rather than replacing it, and the old one keeps its saved
+printers. Uninstall the `.debug` copy by hand, and turn the print service on
+again for the new one.
+
 ## Note on v1.0.0
 
 The published `v1.0.0` pre-release points at an early commit and is left alone
