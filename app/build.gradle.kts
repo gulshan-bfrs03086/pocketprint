@@ -58,13 +58,32 @@ val canSignRelease = listOf(
     releaseStore, releaseStorePassword, releaseKeyAlias, releaseKeyPassword,
 ).all { it != null }
 
+/**
+ * Bumping this to 37 turns local network access into a runtime permission, and
+ * the failure without it is silent - printers stop being discovered and jobs to
+ * a known address time out as though the printer were switched off. So the
+ * build refuses to make that change without the permission being declared.
+ */
+val targetSdkVersion = 36
+
+run {
+    val manifest = file("src/main/AndroidManifest.xml").readText()
+    val permission = "android.permission.ACCESS_LOCAL_NETWORK"
+    require(targetSdkVersion < 37 || manifest.contains(permission)) {
+        "targetSdk $targetSdkVersion needs $permission declared in the manifest, or " +
+            "network discovery and printing stop working with no error anywhere. " +
+            "Check the name against the API 37 SDK while you are here - it is " +
+            "written out by hand in AppPermissions because it did not exist yet."
+    }
+}
+
 android {
     namespace = "com.gulshan.pocketprint"
     compileSdk = 36
 
     defaultConfig {
         applicationId = "com.gulshan.pocketprint"
-        targetSdk = 36
+        targetSdk = targetSdkVersion
         versionCode = baseVersionCode
         versionName = "$versionMajor.$versionMinor.$versionPatch"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

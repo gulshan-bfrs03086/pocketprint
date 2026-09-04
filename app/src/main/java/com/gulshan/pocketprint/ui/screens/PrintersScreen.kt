@@ -126,6 +126,11 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
             AppPermissions.status(it, AppPermissions.bluetooth, settings.askedForBluetooth)
         } ?: PermissionStatus.ASKABLE
     }
+    val localNetworkStatus = remember(systemEpoch, settings.askedForLocalNetwork) {
+        activity?.let {
+            AppPermissions.status(it, AppPermissions.localNetwork, settings.askedForLocalNetwork)
+        } ?: PermissionStatus.GRANTED
+    }
     val printServiceStatus = remember(systemEpoch) { PrintServiceState.status(context) }
     val hibernation = remember(systemEpoch) { AppHealth.hibernation(context) }
     val setupStock by viewModel.setupStock.collectAsStateWithLifecycle()
@@ -185,6 +190,23 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
                         onClick = { AppHealth.openHibernationSettings(context) },
                         modifier = Modifier.padding(top = 8.dp),
                     ) { Text(stringResource(R.string.action_open_app_info)) }
+                }
+            }
+        }
+
+        // Never reached on anything shipping today: the permission list is
+        // empty below Android 17, so the status is GRANTED and this is dead
+        // weight until the platform starts enforcing it. Which is exactly when
+        // somebody needs to be told, because the failure has no other symptom -
+        // printers stop being found and jobs time out as if switched off.
+        if (localNetworkStatus == PermissionStatus.BLOCKED) {
+            item {
+                Column(Modifier.padding(top = 16.dp)) {
+                    WarningBanner(stringResource(R.string.local_network_blocked_warning))
+                    Button(
+                        onClick = { AppPermissions.openAppSettings(context) },
+                        modifier = Modifier.padding(top = 8.dp),
+                    ) { Text(stringResource(R.string.action_open_app_settings)) }
                 }
             }
         }
@@ -371,9 +393,15 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
                     // in the background, and refused or not the job still goes:
                     // the notification is how progress and Cancel are shown, not
                     // something printing depends on.
-                    permissions.ensure(AppPermissions.notifications) {
-                        viewModel.print(printer)
-                    }
+                    val wanted = AppPermissions.notifications +
+                        if (printer.kind == ConnectionKind.IPP ||
+                            printer.kind == ConnectionKind.RAW9100
+                        ) {
+                            AppPermissions.localNetwork
+                        } else {
+                            emptyList()
+                        }
+                    permissions.ensure(wanted) { viewModel.print(printer) }
                 },
                 subtitleOverride = if (document == null) {
                     stringResource(R.string.printers_choose_document_first)
@@ -401,7 +429,12 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
                 } else {
                     IconButton(
                         onClick = {
-                            permissions.ensure(AppPermissions.bluetooth) { granted ->
+                            // Discovery covers both radios, so it asks for
+                            // both: mDNS is behind the local network permission
+                            // from Android 17.
+                            permissions.ensure(
+                                AppPermissions.bluetooth + AppPermissions.localNetwork,
+                            ) { granted ->
                                 if (granted) viewModel.startScan()
                             }
                         },

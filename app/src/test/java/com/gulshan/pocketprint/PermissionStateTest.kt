@@ -62,6 +62,30 @@ class PermissionStateTest {
     }
 
     @Test
+    fun `local network access is inert until the platform enforces it`() {
+        // Empty on every version shipping today, which is what makes declaring
+        // and requesting it now cost nothing: an empty list is GRANTED, so no
+        // dialog appears and no banner shows until Android 17 puts LAN sockets
+        // behind it.
+        assertEquals(
+            android.os.Build.VERSION.SDK_INT >= 37,
+            AppPermissions.localNetwork.isNotEmpty(),
+        )
+    }
+
+    @Test
+    fun `the permission name is spelled the way the platform spells it`() {
+        // Written out by hand because it does not exist in the SDK this builds
+        // against. The build refuses to bump targetSdk to 37 without it being
+        // in the manifest, which is the moment to check this against the real
+        // SDK - so it is worth having the exact string pinned in one place.
+        assertEquals(
+            "android.permission.ACCESS_LOCAL_NETWORK",
+            AppPermissions.ACCESS_LOCAL_NETWORK,
+        )
+    }
+
+    @Test
     fun `the print service switch reads as enabled only when it says so`() {
         assertEquals(
             PrintServiceState.Status.ENABLED,

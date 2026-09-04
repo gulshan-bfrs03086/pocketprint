@@ -150,6 +150,7 @@ data class AppSettings(
      */
     val askedForBluetooth: Boolean = false,
     val askedForNotifications: Boolean = false,
+    val askedForLocalNetwork: Boolean = false,
 ) {
     fun toPrintOptions(): PrintOptions = PrintOptions(
         mediaSize = MediaSize.byId(defaultMediaId) ?: MediaSize.A4,

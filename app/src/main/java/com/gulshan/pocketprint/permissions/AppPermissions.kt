@@ -56,6 +56,36 @@ object AppPermissions {
         emptyList()
     }
 
+    /**
+     * The API level at which local network access becomes a runtime permission.
+     *
+     * Android 17. Not a constant in the SDK this builds against, and neither is
+     * the permission name below - both are written out because the app has to
+     * be ready for a platform it cannot yet compile against. The build check in
+     * app/build.gradle.kts is what forces this to be re-verified against the
+     * real SDK before targetSdk is bumped.
+     */
+    private const val LOCAL_NETWORK_SDK = 37
+
+    /** Local Network Protections, from Android 17. */
+    const val ACCESS_LOCAL_NETWORK = "android.permission.ACCESS_LOCAL_NETWORK"
+
+    /**
+     * Reaching a printer on the LAN.
+     *
+     * Empty on everything shipping today, which is the point: this changes
+     * nothing until the platform starts enforcing it. From Android 17 every LAN
+     * socket and all of mDNS sits behind this, and the failure is the worst
+     * kind - nothing throws, the printer simply is not found and jobs to a
+     * known address time out, exactly as if it were switched off.
+     */
+    val localNetwork: List<String> =
+        if (Build.VERSION.SDK_INT >= LOCAL_NETWORK_SDK) {
+            listOf(ACCESS_LOCAL_NETWORK)
+        } else {
+            emptyList()
+        }
+
     /** Showing job progress, and the Cancel action that goes with it. */
     val notifications: List<String> =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {

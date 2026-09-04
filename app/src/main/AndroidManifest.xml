@@ -15,6 +15,12 @@
          socket opened without saying otherwise never reaches the printer.
          Finding the Wi-Fi network to bind to needs this. -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Android 17 puts every LAN socket and all of mDNS behind this. Declared
+         now because the failure without it is silent: nothing throws, printers
+         simply stop being discovered and jobs to a known address time out as if
+         the printer were off. Ignored by every version shipping today, so it
+         changes nothing until the platform starts enforcing it. -->
+    <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
 
     <!-- Bluetooth thermal / label printers.
 

@@ -151,6 +151,7 @@
 
     <!-- Printers screen -->
     <string name="hibernation_warning">Android will switch PocketPrint off if it is not opened for about three months, and take its Bluetooth permission with it. Printing from other apps does not count as opening it - so the next print from Gmail would simply fail, inside Gmail, with nothing able to explain why. Turning off \"pause app activity if unused\" prevents it.</string>
+    <string name="local_network_blocked_warning">PocketPrint cannot reach printers on your network, because permission to use the local network was turned down. Android will not ask again, so it has to be granted in app settings. Bluetooth and USB printers are unaffected.</string>
     <string name="bluetooth_blocked_warning">PocketPrint cannot see or reach Bluetooth printers, because the Bluetooth permission was turned down. Android will not ask again, so it has to be granted in app settings.</string>
     <string name="printers_document">Document</string>
     <string name="printers_no_document">No document selected</string>

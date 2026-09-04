@@ -673,6 +673,8 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
                 permissions.any { it in AppPermissions.bluetooth },
             askedForNotifications = current.askedForNotifications ||
                 permissions.any { it in AppPermissions.notifications },
+            askedForLocalNetwork = current.askedForLocalNetwork ||
+                permissions.any { it in AppPermissions.localNetwork },
         )
     }
 
