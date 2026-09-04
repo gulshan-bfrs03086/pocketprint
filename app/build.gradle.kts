@@ -13,8 +13,8 @@ plugins {
  * See docs/RELEASING.md.
  */
 val versionMajor = 1
-val versionMinor = 0
-val versionPatch = 1
+val versionMinor = 1
+val versionPatch = 0
 
 /**
  * Version codes must be distinct integers that only increase, and the two
