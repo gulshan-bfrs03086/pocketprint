@@ -90,6 +90,23 @@ class IppClient(
     companion object {
         private val IPP_MEDIA = "application/ipp".toMediaType()
 
+        /**
+         * The resolution to put in the job ticket, or null to leave it to the
+         * printer's default.
+         *
+         * A supported value goes as asked. An unsupported one is replaced by the
+         * nearest the printer offers - which keeps the intent, and is what a
+         * person asked for 300 dpi on a 600-dpi laser would want. When nothing
+         * is known about the printer, nothing is sent: a wrong guess is fatal
+         * to the job, and the printer's own default never is.
+         */
+        internal fun resolutionToSend(requested: Int, supported: List<Int>): Int? {
+            if (supported.isEmpty()) return null
+            if (requested in supported) return requested
+            // Ties go to the higher resolution: too much detail is harmless.
+            return supported.sortedDescending().minByOrNull { kotlin.math.abs(it - requested) }
+        }
+
         fun defaultClient(): OkHttpClient = OkHttpClient.Builder()
             .connectTimeout(6, TimeUnit.SECONDS)
             .readTimeout(60, TimeUnit.SECONDS)
@@ -132,9 +149,11 @@ class IppClient(
         format: PrintLanguage,
         options: PrintOptions,
         supportedMedia: List<String>,
+        supportedResolutions: List<Int> = emptyList(),
     ): IppResponse = withContext(Dispatchers.IO) {
         val body = buildJobRequest(
             IppOperation.VALIDATE_JOB, address, jobName, format, options, supportedMedia,
+            supportedResolutions,
         )
         execute(address, body, null, 0L)
     }
@@ -150,10 +169,17 @@ class IppClient(
         options: PrintOptions,
         supportedMedia: List<String>,
         contentLength: Long,
+        /**
+         * What the printer said in printer-resolution-supported. Empty means
+         * unknown, in which case no resolution is asked for at all - see
+         * [resolutionToSend] for why guessing is the one thing not to do.
+         */
+        supportedResolutions: List<Int> = emptyList(),
         openDocument: () -> InputStream,
     ): IppResponse = withContext(Dispatchers.IO) {
         val header = buildJobRequest(
             IppOperation.PRINT_JOB, address, jobName, format, options, supportedMedia,
+            supportedResolutions,
         )
         execute(address, header, openDocument, contentLength)
     }
@@ -193,6 +219,7 @@ class IppClient(
         format: PrintLanguage,
         options: PrintOptions,
         supportedMedia: List<String>,
+        supportedResolutions: List<Int>,
     ): ByteArray = IppRequest(operation, requestIds.getAndIncrement())
         .operationAttributes {
             charset("attributes-charset")
@@ -224,7 +251,14 @@ class IppClient(
                 "orientation-requested",
                 if (options.orientation == Orientation.LANDSCAPE) 4 else 3,
             )
-            resolution("printer-resolution", options.dpi, options.dpi)
+            // An unsupported value here is not rounded by the printer, it is
+            // refused: the whole job comes back as
+            // client-error-attributes-or-values-not-supported. Found against
+            // CUPS's reference implementation, which advertises 600 dpi only
+            // and was sent the 300 dpi default of every in-app job.
+            resolutionToSend(options.dpi, supportedResolutions)?.let {
+                resolution("printer-resolution", it, it)
+            }
             options.pageRange?.let { ranges("page-ranges", listOf(it)) }
         }
         .build()

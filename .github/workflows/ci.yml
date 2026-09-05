@@ -41,6 +41,18 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
 
+      # The IPP client is exercised against ippeveprinter, the IPP Everywhere
+      # reference implementation that ships with CUPS - a real server that
+      # validates media, moves jobs through their states and stores exactly the
+      # bytes it was sent. Without it those tests report as skipped, which is
+      # visible in the report but is not the same as having run, so the install
+      # is allowed to fail the build.
+      - name: Install the IPP Everywhere reference printer
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq cups-ipp-utils avahi-daemon
+          sudo systemctl start avahi-daemon || true
+
       - name: Unit tests
         run: ./gradlew testDebugUnitTest --no-daemon
 
