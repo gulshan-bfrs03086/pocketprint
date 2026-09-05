@@ -307,9 +307,10 @@ export JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home
 ./scripts/check-required-features.sh   # no required hardware features
 ./scripts/check-permissions.sh         # asks for exactly what the docs say
 ./scripts/check-platform-packages.sh   # one non-SDK dependency, and it has a fallback
+./scripts/check-printservice-threading.sh   # framework handles never leave the main thread
 ```
 
-Those three are build gates, not niceties. Each runs in CI against the built APKs — debug and
+Those four are build gates, not niceties. Each runs in CI against the built APKs — debug and
 release — and each exists because of something that already went wrong once:
 
 | Gate | What it refuses to let happen again |
@@ -317,6 +318,7 @@ release — and each exists because of something that already went wrong once:
 | `check-required-features` | An implied **required** hardware feature. `ACCESS_FINE_LOCATION` once made the build tools imply `android.hardware.location`, and Android will not install a package whose required features the device lacks — it reported only "Can't install the app", on a rugged terminal with no GPS. |
 | `check-permissions` | The permission set drifting away from the prose that describes it. What the app asks for is checked in as data and diffed against the APK, both ways, so a silent *removal* fails as loudly as an addition. Four descriptions of it went stale simultaneously; one of them reached a release page. |
 | `check-platform-packages` | A second class appearing inside `android.print`, or the fallback for the one that's there quietly becoming unwired. |
+| `check-printservice-threading` | A print-framework handle reaching a worker thread. Every method on `PrintJob`, `generatePrinterId`, `addPrinters` throws `IllegalAccessError` off the main thread — an *Error*, which `runCatching` swallows — and the symptom is a print dialog that searches forever. Three separate violations presented exactly that way. One file may hold those handles and is forbidden from dispatching; every other file may only pass a `PrintJob` straight to it. |
 
 That last gate guards the single place this app reaches outside the public SDK. WebView's
 `PrintDocumentAdapter` is the only thing that paginates HTML properly, and driving it without the

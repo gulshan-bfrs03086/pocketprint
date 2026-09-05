@@ -73,6 +73,14 @@ jobs:
       - name: One platform-package exception, with its fallback
         run: ./scripts/check-platform-packages.sh
 
+      # The print framework's job and session handles throw IllegalAccessError
+      # off the main thread, and runCatching swallows an Error as readily as an
+      # Exception - which is how three separate violations each presented as a
+      # print dialog that searched forever. One file may touch those handles;
+      # this fails if any other file does, or if that file learns to dispatch.
+      - name: Print-framework calls stay on the main thread
+        run: ./scripts/check-printservice-threading.sh
+
       - name: Upload the debug APK
         uses: actions/upload-artifact@v7
         with:
