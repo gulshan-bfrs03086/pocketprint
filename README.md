@@ -154,19 +154,16 @@ PDF pages are rasterised in **horizontal bands**, so a 600 dpi A4 page doesn't t
 
 ## Get it
 
-Download from [**Releases**](https://github.com/gulshan-bfrs03086/pocketprint/releases) — one
-build, `pocketprint.apk`:
+Download `pocketprint.apk` from
+[**Releases**](https://github.com/gulshan-bfrs03086/pocketprint/releases). One build, no variants
+to choose between:
 
 | | |
 |---|---|
 | Android | **7.0+** (API 24) |
+| Size | 1.9 MB |
 | Location permission | **none** |
-| Size | 1.8 MB |
-
-It replaces the separate `modern` and `legacy` APKs earlier versions shipped, and installs over
-either of them — same signing key, same applicationId, a higher version code. Nothing to
-uninstall. The two differed by a single install-time permission that Android 12 ignores anyway,
-which was not worth two of every file and sentence describing them.
+| Required hardware | **none** |
 
 It asks for no location permission, and none to scan. Pairing goes through Android's own
 companion device picker, which scans on the app's behalf — an app that does not scan does not
@@ -177,18 +174,59 @@ with no GPS.
 It requires *no* hardware feature, so it installs on devices without GPS, a camera or a
 touchscreen.
 
-> [!NOTE]
-> Releases are built and signed by [a tag-triggered workflow](.github/workflows/release.yml),
-> which prints the signing certificate's fingerprint into its log so a downloaded APK can be
-> checked against it (`apksigner verify --print-certs`). Checksums are on the release page.
-> Anything published before **v1.1.0** is a debug build signed with Android's public debug
-> keystore and carries no authenticity guarantee at all — and because debug builds use a
-> different package name, the first signed release installs *alongside* it rather than over it.
+### Installing
 
-Then turn the print service on once, under **Settings → Connected devices → Printing →
-PocketPrint**. There's a button in the app that takes you straight there, and the app tells you
-whether the switch is already on — or says plainly that this version of Android will not let it
-find out.
+It is not on Google Play, so this is a sideload:
+
+1. Get `pocketprint.apk` onto the device — download it there, or copy it across.
+2. Open it. Android asks whether to allow installs from whatever app you opened it with, a
+   browser or Files. That permission is per-app, and can be switched back off afterwards.
+3. Install.
+
+Over a cable instead:
+
+```bash
+adb install -r pocketprint.apk
+```
+
+`-r` reinstalls in place and keeps the app's data, which is where your configured printers live.
+
+### Upgrading
+
+| Installed | What happens |
+|---|---|
+| **v1.1.0**, either `-modern` or `-legacy` | Installs straight over it. Same signing key, same `com.gulshan.pocketprint`, higher version code — your printers are kept. |
+| **v1.0.x** | Installs **alongside**, leaving two apps. Those were debug builds under `com.gulshan.pocketprint.debug`, which Android treats as an unrelated app. Uninstall the old one; its printers do not carry over. |
+| nothing | Nothing special. |
+
+v1.2.0 is the first release to replace the separate `modern` and `legacy` APKs. They differed by
+a single install-time permission that Android 12 ignores anyway, which was not worth two of every
+file and sentence describing them.
+
+### Checking what you downloaded
+
+The APK is signed with a key held outside this repository. Every release since v1.1.0 carries the
+same certificate, so this fingerprint should match whatever you download:
+
+```bash
+apksigner verify --print-certs pocketprint.apk
+# V3.0 Signer: certificate SHA-256 digest: 9c722e39d5d3cb111d6a0540d3b3dd480eebd6f54c588afc73db1fc05b90b39e
+```
+
+A different fingerprint means a different key — and Android will refuse to install it over a copy
+signed with this one. Per-release SHA-256 sums are in `SHA256SUMS.txt` on each release page.
+
+> [!WARNING]
+> Anything published before **v1.1.0** is a debug build signed with Android's public AOSP debug
+> keystore — a key that ships with the SDK and that everyone has. Those downloads carry no
+> authenticity guarantee whatsoever: anyone could have built a package that installs over them
+> and inherits the print service, which sees every document you print. Replace them.
+
+### Turning the print service on
+
+One switch, once, under **Settings → Connected devices → Printing → PocketPrint**. There's a
+button in the app that takes you straight there, and the app tells you whether the switch is
+already on — or says plainly that this version of Android will not let it find out.
 
 PocketPrint asks for nothing on first launch. Each permission is requested at the moment it is
 needed: Bluetooth when you set up a printer, notifications when you print. If one has been
