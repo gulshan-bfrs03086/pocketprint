@@ -381,8 +381,11 @@ wrote; copies, media and page-ranges come back in the job as sent. That run foun
 the client sent `printer-resolution` as asked, and a printer that does not offer that resolution
 refuses the whole job rather than rounding — see below. Not a physical printer, so what a print
 head does with the raster and whether Android's mDNS discovery finds it are still not shown.
-IPPS is not exercised live: the emulator does not serve implicit TLS, so trust-on-first-use
-remains unit-tested only.
+IPPS is exercised live in CI too: Ubuntu's build of the emulator serves TLS from a self-signed
+certificate, and the run shows the printer refused with no pin, the refusal naming the
+certificate's real fingerprint, and the same printer answering once that fingerprint is pinned.
+macOS's build keeps its credentials in the keychain and ignores the key directory, so on a Mac
+that one test skips, saying so.
 
 The rendering path is verified independently of any printer. Debug builds log the dark pixels
 per rendered page and the ink coverage of the packed bitmap, and save every generated command
