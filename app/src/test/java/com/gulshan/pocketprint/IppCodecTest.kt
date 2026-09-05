@@ -14,6 +14,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.ByteArrayOutputStream
 import java.io.DataOutputStream
+import com.gulshan.pocketprint.ipp.IppClient
 
 class IppCodecTest {
 
@@ -104,6 +105,18 @@ class IppCodecTest {
         val decoded = IppDecoder.decode(response)
         assertEquals("none", decoded["printer-state-reasons"]?.asString())
         assertTrue(decoded["vendor-blob"]?.first is IppValue.Raw)
+    }
+
+    @Test
+    fun `an unsupported resolution is never sent as-is`() {
+        // A printer refuses a job whose printer-resolution it does not list; it
+        // does not round. This is what CUPS's reference implementation did with
+        // the 300 dpi default on a printer that offers 600 only.
+        assertEquals(600, IppClient.resolutionToSend(300, listOf(600)))
+        assertEquals(300, IppClient.resolutionToSend(300, listOf(300, 600)))
+        assertEquals(600, IppClient.resolutionToSend(500, listOf(300, 600, 1200)))
+        assertEquals("ties go up", 600, IppClient.resolutionToSend(450, listOf(300, 600)))
+        assertNull("unknown printer: ask for nothing rather than guess", IppClient.resolutionToSend(300, emptyList()))
     }
 
     @Test

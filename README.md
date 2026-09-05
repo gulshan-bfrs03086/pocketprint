@@ -212,6 +212,13 @@ a raster. Latin text keeps the fast printer-font path.
 whole store with it. Records are decoded individually now, and one that cannot be read is
 quarantined rather than fatal.
 
+**A printer does not round an unsupported resolution; it refuses the job.** The client sent
+`printer-resolution` at whatever the options said — 300 dpi by default — and CUPS's reference
+implementation, which offers 600 only, answered `client-error-attributes-or-values-not-supported`
+to every job. Many lasers advertise a single resolution. The nearest one the printer offers is
+sent instead, and nothing at all when the printer's list is unknown, because a wrong guess is
+fatal and the printer's own default never is. Found by the first run against a real server.
+
 **Version codes only ever increase.** Collapsing two build flavours into one would have derived a
 code *below* what was already published — refusing the update on every device with the app
 installed, recoverable only by an uninstall that discards the user's printers. A `require()`
@@ -364,13 +371,26 @@ ui/            Compose screens, view model, theme
 the exact TSPL byte stream, and label output. The system print service was verified end to end
 on an emulator — a saved printer really does reach Android's print dialog.
 
+**Verified against a real IPP server.** The IPP client runs in CI against `ippeveprinter`, the
+IPP Everywhere reference implementation that ships with CUPS — a real server that validates
+media against what it supports, moves jobs through their states, and stores exactly the bytes it
+was sent. Get-Printer-Attributes maps to sane capabilities; a Print-Job PDF completes and is
+held byte-identical; a PWG raster job completes and its 1796-byte page header reads correctly at
+the spec's offsets through a parser first validated against a file Apple's own `rastertopwg`
+wrote; copies, media and page-ranges come back in the job as sent. That run found a real bug:
+the client sent `printer-resolution` as asked, and a printer that does not offer that resolution
+refuses the whole job rather than rounding — see below. Not a physical printer, so what a print
+head does with the raster and whether Android's mDNS discovery finds it are still not shown.
+IPPS is not exercised live: the emulator does not serve implicit TLS, so trust-on-first-use
+remains unit-tested only.
+
 The rendering path is verified independently of any printer. Debug builds log the dark pixels
 per rendered page and the ink coverage of the packed bitmap, and save every generated command
 stream under `getExternalFilesDir` for byte-level inspection. On a 4x6 label at 203 dpi a
 US Letter page renders to 812 x 1051 dots at 30.02% ink and emits exactly 107,357 bytes of
 TSPL. That makes it quick to tell a rendering bug from a printer that is not marking.
 
-**114 unit tests** cover the IPP codec (request framing, multi-value and resolution decoding,
+**122 unit tests** cover the IPP codec (request framing, multi-value and resolution decoding,
 unknown-tag tolerance), PWG raster round trips including band-boundary equivalence, PWG media
 name parsing, the exact TSPL output, which document types the exported share target will accept,
 the IPP job-state decoding that decides whether a job may be called printed, the per-printer job

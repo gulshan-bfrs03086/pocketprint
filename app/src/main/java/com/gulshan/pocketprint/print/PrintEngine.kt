@@ -316,6 +316,7 @@ class PrintEngine(
                         format = printer.capabilities.preferredLanguage(),
                         options = options,
                         supportedMedia = printer.capabilities.mediaSizes.map { it.id },
+                        supportedResolutions = printer.capabilities.resolutionsDpi,
                         contentLength = bytes.size.toLong(),
                         openDocument = { bytes.inputStream() },
                     )
@@ -400,6 +401,7 @@ class PrintEngine(
                     format = rendered.language,
                     options = options,
                     supportedMedia = printer.capabilities.mediaSizes.map { it.id },
+                    supportedResolutions = printer.capabilities.resolutionsDpi,
                     contentLength = total,
                     openDocument = { rendered.file.inputStream() },
                 )

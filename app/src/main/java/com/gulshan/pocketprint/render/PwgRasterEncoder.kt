@@ -183,7 +183,7 @@ object PwgRasterEncoder {
         return true
     }
 
-    private fun pageHeader(
+    internal fun pageHeader(
         width: Int,
         height: Int,
         bytesPerLine: Int,
