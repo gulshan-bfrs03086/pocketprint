@@ -61,6 +61,19 @@ data class PreviewState(
     val message: String? = null,
 )
 
+/**
+ * A certificate decision waiting on the user. [alreadyTrusted] is the
+ * reassuring case: they asked, and there was nothing to decide.
+ */
+data class CertificatePrompt(
+    val printer: Printer,
+    val fingerprint: String,
+    val subject: String,
+    val notAfterEpochMs: Long,
+    val previousPin: String?,
+    val alreadyTrusted: Boolean = false,
+)
+
 data class DiscoveryState(
     val scanning: Boolean = false,
     val network: List<Printer> = emptyList(),
@@ -108,6 +121,9 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _setup = MutableStateFlow<SetupProgress?>(null)
     val setup: StateFlow<SetupProgress?> = _setup.asStateFlow()
+
+    private val _certificatePrompt = MutableStateFlow<CertificatePrompt?>(null)
+    val certificatePrompt: StateFlow<CertificatePrompt?> = _certificatePrompt.asStateFlow()
 
     /** Label stock for auto-setup. Wrong size = the printer hunts for a gap and stalls. */
     private val _setupStock = MutableStateFlow(MediaSize.LABEL_4X6)
@@ -179,10 +195,11 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
 
     /**
      * Most AirPrint printers advertise the same queue over both _ipp._tcp and
-     * _ipps._tcp. Listing both is confusing, and the TLS entry cannot currently
-     * be used because printers present self-signed certificates that the device
-     * trust store rejects, so a plain entry wins when the pair names the same
-     * host and path.
+     * _ipps._tcp. Listing both is confusing, and the TLS entry needs a trust
+     * decision from the user before it works - printers sign their own
+     * certificates - so a plain entry wins when the pair names the same host
+     * and path. A printer that advertises only _ipps._tcp is kept, and asks
+     * for that decision when it is saved.
      */
     private fun mergeNetwork(current: List<Printer>, found: Printer): List<Printer> {
         val incoming = found.address as? PrinterAddress.Ipp ?: return current + found
@@ -222,6 +239,68 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
         }
         val probed = engine.probe(printer)
         printerRepo.save(probed)
+        askAboutCertificate(probed)
+    }
+
+    // ---- IPPS certificates --------------------------------------------------
+
+    /**
+     * Raises the trust prompt if this printer's certificate was refused. Called
+     * after a printer is saved, because that is the first moment the app has a
+     * reason to talk to it over TLS and the last moment before a failure would
+     * look like a printer that does not work.
+     */
+    private fun askAboutCertificate(printer: Printer) = viewModelScope.launch {
+        engine.certificateProblem(printer)?.let { raiseCertificatePrompt(printer, it) }
+    }
+
+    /** From the settings dialog: the user asked, so a clean answer is shown too. */
+    fun checkCertificate(printer: Printer) = viewModelScope.launch {
+        val address = printer.address as? PrinterAddress.Ipp
+        if (address?.secure != true) return@launch
+        when (val problem = engine.certificateProblem(printer)) {
+            null -> _certificatePrompt.value = CertificatePrompt(
+                printer = printer,
+                fingerprint = address.certificateSha256.orEmpty(),
+                subject = "",
+                notAfterEpochMs = 0L,
+                previousPin = null,
+                alreadyTrusted = true,
+            )
+            else -> raiseCertificatePrompt(printer, problem)
+        }
+    }
+
+    private fun raiseCertificatePrompt(
+        printer: Printer,
+        problem: com.gulshan.pocketprint.ipp.UntrustedCertificateException,
+    ) {
+        _certificatePrompt.value = CertificatePrompt(
+            printer = printer,
+            fingerprint = problem.fingerprint,
+            subject = problem.subject,
+            notAfterEpochMs = problem.notAfterEpochMs,
+            previousPin = problem.pinned,
+        )
+    }
+
+    /**
+     * The user compared the fingerprint and said yes. Pin exactly that leaf,
+     * then probe again: the printer's real capabilities were unreachable until
+     * this moment, so the saved record is still the placeholder.
+     */
+    fun trustCertificate() = viewModelScope.launch {
+        val prompt = _certificatePrompt.value ?: return@launch
+        _certificatePrompt.value = null
+        val address = prompt.printer.address as? PrinterAddress.Ipp ?: return@launch
+        val pinned = prompt.printer.copy(
+            address = address.copy(certificateSha256 = prompt.fingerprint.lowercase()),
+        )
+        printerRepo.save(engine.probe(pinned))
+    }
+
+    fun dismissCertificatePrompt() {
+        _certificatePrompt.value = null
     }
 
     fun removePrinter(printerId: String) = viewModelScope.launch {
@@ -313,7 +392,9 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
             },
             saved = true,
         )
-        printerRepo.save(engine.probe(printer))
+        val probed = engine.probe(printer)
+        printerRepo.save(probed)
+        askAboutCertificate(probed)
     }
 
     // ---- documents and printing ---------------------------------------------

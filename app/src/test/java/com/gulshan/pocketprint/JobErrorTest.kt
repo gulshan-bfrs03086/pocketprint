@@ -25,6 +25,23 @@ class JobErrorTest {
     }
 
     @Test
+    fun `a refused certificate is explained as a decision, and a changed one as a warning`() {
+        assertEquals(
+            R.string.job_error_untrusted_certificate,
+            JobError.explain("The printer's certificate is not trusted by this device (SHA-256 F1:2F)"),
+        )
+        // The platform's own wording, for the path that never reached the pinning manager.
+        assertEquals(
+            R.string.job_error_untrusted_certificate,
+            JobError.explain("Trust anchor for certification path not found."),
+        )
+        assertEquals(
+            R.string.job_error_certificate_changed,
+            JobError.explain("The printer's certificate has changed since it was trusted (was A3:C3, now F1:2F)"),
+        )
+    }
+
+    @Test
     fun `a stalled write is explained as the printer, not as the socket`() {
         assertEquals(
             R.string.job_error_stalled,

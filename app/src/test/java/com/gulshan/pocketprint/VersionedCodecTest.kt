@@ -40,6 +40,33 @@ class VersionedCodecTest {
     }
 
     @Test
+    fun `a pinned certificate survives a round trip, and a record from before pins reads as unpinned`() {
+        val pinned = Printer(
+            id = "ipps",
+            displayName = "Secure",
+            address = PrinterAddress.Ipp(
+                host = "192.168.1.50",
+                secure = true,
+                certificateSha256 = "f12ffa29adf7cb1f0f708bd73a80a90edb20dba96f3446c50e24d16c4f6e26fb",
+            ),
+        )
+        val encoded = codec.encode(listOf(pinned))
+        assertTrue(encoded, "f12ffa29" in encoded)
+        assertEquals(pinned, codec.decode(encoded).items.single())
+
+        // What every saved IPPS printer in the field looks like: written by this
+        // same codec before the field existed, so the key is simply absent. It
+        // must read as "not yet trusted", not as an unreadable record.
+        val unpinned = pinned.copy(address = PrinterAddress.Ipp(host = "192.168.1.50", secure = true))
+        val old = codec.encode(listOf(unpinned)).replace(""","certificateSha256":null""", "")
+        assertFalse(old, "certificateSha256" in old)
+        val read = codec.decode(old)
+        assertTrue(read.healthy)
+        assertNull((read.items.single().address as PrinterAddress.Ipp).certificateSha256)
+        assertTrue((read.items.single().address as PrinterAddress.Ipp).secure)
+    }
+
+    @Test
     fun `a bare array from before versions existed is still read`() {
         // What every install in the field currently holds.
         val legacy = """[{"id":"a","displayName":"Old","address":""" +

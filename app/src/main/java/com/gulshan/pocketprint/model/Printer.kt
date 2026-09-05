@@ -53,6 +53,14 @@ sealed interface PrinterAddress {
         val port: Int = 631,
         val path: String = "/ipp/print",
         val secure: Boolean = false,
+        /**
+         * SHA-256 of the TLS certificate the user chose to trust for this
+         * printer, lowercase hex. Null until they have. Only meaningful when
+         * [secure]; printers sign their own certificates, and this is the
+         * one exception the device's trust store is told to make - for this
+         * printer, for this certificate, and nothing else.
+         */
+        val certificateSha256: String? = null,
     ) : PrinterAddress {
         override val kind get() = ConnectionKind.IPP
         val uri: String get() = "${if (secure) "ipps" else "ipp"}://$host:$port$path"
