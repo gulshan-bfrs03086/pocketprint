@@ -34,6 +34,18 @@ PocketPrint registers itself as a **system print service**, so a Bluetooth therm
 becomes a real Android printer: it shows up in Gmail, Chrome, Photos, and every other app's
 print dialog, alongside your office laser.
 
+### Why not something that already exists
+
+| | Android's built-in printing | A vendor's own app | PocketPrint |
+|---|---|---|---|
+| Bluetooth thermal / label printers | out of scope for Mopria and AirPrint | that vendor's models | by protocol, not by brand |
+| Appears in every app's print dialog | yes | rarely — printing starts inside the app | yes, it registers a `PrintService` |
+| Prints an arbitrary PDF or web page | yes | often not | yes |
+| Works with no internet at all | yes | varies | yes — nothing leaves the device |
+| Source you can read and fork | no | no | Apache-2.0, protocols implemented here |
+
+Google Cloud Print used to cover part of this gap. It was shut down at the end of 2020.
+
 ## What you can do with it
 
 **Print 4×6 shipping labels straight from your phone.** No PC in the loop. The label designer
@@ -149,8 +161,61 @@ flowchart LR
 | **Bluetooth** | RFCOMM with a four-rung connect ladder — bond, secure SPP, **insecure SPP**, channel-1 fallback. The insecure rung matters: legacy PIN-0000 controllers bring the channel up and then mishandle authentication. Plus BLE/GATT for LE-only printers. |
 | **USB** | USB printer class over OTG, with runtime permission brokering. |
 
+### What's implemented here rather than pulled in
+
+No printer vendor SDK is used, and the only runtime dependency outside AndroidX, Compose and
+kotlinx is OkHttp, which carries IPP's HTTP transport. Every wire format below is encoded and
+decoded by code in this repository:
+
+| | Scope | Reference |
+|---|---|---|
+| **IPP encoding** | attribute groups, value tags, multi-value and resolution decoding, unknown-tag tolerance | RFC 8010 |
+| **IPP semantics** | `Print-Job`, `Get-Printer-Attributes`, `Get-Job-Attributes`, `job-state` | RFC 8011 |
+| **PWG Raster** | header and banded raster, round-tripped in tests including band boundaries | PWG 5102.4 |
+| **PWG media names** | `na_letter_8.5x11in`, `iso_a4_210x297mm`, `om_label_100x150mm` and custom sizes | PWG 5101.1 |
+| **PCL 5** | raster graphics, for lasers that predate AirPrint | HP language |
+| **TSPL / ZPL** | label geometry, gap and black-mark sensing, darkness, speed, firmware barcodes | TSC / Zebra languages |
+| **ESC/POS** | receipt text and raster | Epson language |
+| **mDNS** | `_ipp._tcp` and `_ipps._tcp` browsing via `NsdManager`, under a multicast lock | — |
+
 PDF pages are rasterised in **horizontal bands**, so a 600 dpi A4 page doesn't try to allocate a
 139 MB bitmap.
+
+## Why this is harder than it looks
+
+Every item below was a real defect in this app, and every one is now a test, a type, or a build
+gate. They are the reason the code is shaped the way it is.
+
+**"Sent" is not "printed."** A socket write returns when the OS accepts the bytes, not when a
+label comes out. This app once reported six completed jobs while the printer produced six blank
+labels. There is no `PrintResult.Success` any more: `Delivered`, `Sent` and `Completed` are
+different claims, and an IPP job is polled to `job-state` 9 before anything is called printed.
+
+**A print job is not a data sync.** The foreground service was typed `dataSync`, which Android 15
+caps at six hours a day and then times out. It is `connectedDevice` — which is what driving a
+peripheral actually is, and is not capped.
+
+**Cancelling a coroutine does not stop a blocking write.** `write(2)` into a wedged RFCOMM socket
+ignores cancellation; only closing the socket underneath it returns. Every send runs under a
+stall guard that does exactly that, with a deadline and a cancel button.
+
+**A printer-only access point has no internet, so Android keeps cellular as the default route.**
+A socket opened without saying otherwise never reaches the printer — which is the whole of "it
+finds my printer but won't print". Sockets are bound to the network the printer is actually on.
+
+**Thermal printer fonts are ISO-8859-1.** Hindi, Arabic, Thai and Chinese came out as rows of
+question marks, in exactly the markets that buy these printers. Text the firmware cannot carry is
+shaped and laid out on the phone — Android's font fallback, bidi reordering and all — and sent as
+a raster. Latin text keeps the fast printer-font path.
+
+**One unreadable record used to erase every saved printer.** A single decode failure took the
+whole store with it. Records are decoded individually now, and one that cannot be read is
+quarantined rather than fatal.
+
+**Version codes only ever increase.** Collapsing two build flavours into one would have derived a
+code *below* what was already published — refusing the update on every device with the app
+installed, recoverable only by an uninstall that discards the user's printers. A `require()`
+fails the build rather than shipping that.
 
 ## Get it
 
@@ -244,18 +309,22 @@ export JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home
 ./scripts/check-platform-packages.sh   # one non-SDK dependency, and it has a fallback
 ```
 
-That last check is a build gate, not a nicety. Android refuses to install a package whose
-required hardware features the device lacks, and reports only a generic "Can't install the app".
-This app once became uninstallable on a rugged terminal because `ACCESS_FINE_LOCATION` made the
-build tools imply `android.hardware.location` as **required**. CI now fails on any such feature.
+Those three are build gates, not niceties. Each runs in CI against the built APKs — debug and
+release — and each exists because of something that already went wrong once:
 
-The second check guards the one place this app reaches outside the public SDK. WebView's
+| Gate | What it refuses to let happen again |
+|---|---|
+| `check-required-features` | An implied **required** hardware feature. `ACCESS_FINE_LOCATION` once made the build tools imply `android.hardware.location`, and Android will not install a package whose required features the device lacks — it reported only "Can't install the app", on a rugged terminal with no GPS. |
+| `check-permissions` | The permission set drifting away from the prose that describes it. What the app asks for is checked in as data and diffed against the APK, both ways, so a silent *removal* fails as loudly as an addition. Four descriptions of it went stale simultaneously; one of them reached a release page. |
+| `check-platform-packages` | A second class appearing inside `android.print`, or the fallback for the one that's there quietly becoming unwired. |
+
+That last gate guards the single place this app reaches outside the public SDK. WebView's
 `PrintDocumentAdapter` is the only thing that paginates HTML properly, and driving it without the
 system print dialog needs a class placed inside the `android.print` package, where the result
 callbacks have package-private constructors. That works today, is unsupported, and would take
 every shared link and HTML document down together the day it stops. So it has a public-API
 fallback — `PdfDocument` and `WebView.draw`, worse output but a document that prints — and the
-check fails if a second platform-package class appears or if the fallback stops being wired in.
+gate fails if a second platform-package class appears or if the fallback stops being wired in.
 
 Versions are built on `release/X.Y` branches and reach `main` by merge, so `main` always holds the
 latest — see [docs/RELEASING.md](docs/RELEASING.md). The version is declared once, in
@@ -311,7 +380,7 @@ printer's own fonts can carry, the bit order and polarity of the mono raster, an
 sensing and darkness commands for both label dialects, the failure messages turned into advice,
 the two permission readings where "unknown" must not be reported as "no", the rule that decides when a socket is
 bound to the local network, and the end-of-stream case that Android 17 turns from an exception
-into a silent -1. CI builds and tests both variants on every push.
+into a silent -1. CI builds and tests debug and release on every push.
 
 **What isn't proven.** Coverage beyond that one printer is thin — that's the real gap, and no
 amount of code review closes it. Office documents need an external converter (a Gotenberg
