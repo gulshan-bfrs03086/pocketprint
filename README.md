@@ -156,7 +156,7 @@ flowchart LR
 
 | | |
 |---|---|
-| **Wi-Fi** | IPP / IPPS, auto-discovered over mDNS. The IPP client is written from scratch — RFC 8010 encoding, RFC 8011 semantics — so there's no opaque dependency between you and the printer. |
+| **Wi-Fi** | IPP / IPPS, auto-discovered over mDNS. The IPP client is written from scratch — RFC 8010 encoding, RFC 8011 semantics — so there's no opaque dependency between you and the printer. IPPS uses trust-on-first-use: the platform's trust decision first, then the one certificate you chose to pin for that printer — never a trust-everything manager. |
 | **Raw 9100** | JetDirect / AppSocket, for printers that predate AirPrint. |
 | **Bluetooth** | RFCOMM with a four-rung connect ladder — bond, secure SPP, **insecure SPP**, channel-1 fallback. The insecure rung matters: legacy PIN-0000 controllers bring the channel up and then mishandle authentication. Plus BLE/GATT for LE-only printers. |
 | **USB** | USB printer class over OTG, with runtime permission brokering. |
@@ -370,7 +370,7 @@ stream under `getExternalFilesDir` for byte-level inspection. On a 4x6 label at 
 US Letter page renders to 812 x 1051 dots at 30.02% ink and emits exactly 107,357 bytes of
 TSPL. That makes it quick to tell a rendering bug from a printer that is not marking.
 
-**102 unit tests** cover the IPP codec (request framing, multi-value and resolution decoding,
+**114 unit tests** cover the IPP codec (request framing, multi-value and resolution decoding,
 unknown-tag tolerance), PWG raster round trips including band-boundary equivalence, PWG media
 name parsing, the exact TSPL output, which document types the exported share target will accept,
 the IPP job-state decoding that decides whether a job may be called printed, the per-printer job
@@ -386,8 +386,9 @@ into a silent -1. CI builds and tests debug and release on every push.
 
 **What isn't proven.** Coverage beyond that one printer is thin — that's the real gap, and no
 amount of code review closes it. Office documents need an external converter (a Gotenberg
-instance on your LAN works unmodified). IPPS printers with self-signed certificates don't work
-yet. Printers lie about their capabilities in inventive ways, so expect to correct a setting or
+instance on your LAN works unmodified). IPPS printers present certificates they signed
+themselves; the app pins one on first use, after showing you the fingerprint to check against
+the printer's own status page. Printers lie about their capabilities in inventive ways, so expect to correct a setting or
 two per model — there's a printer-settings screen for exactly that, with a test-page button.
 
 Known gaps are tracked as [open issues](https://github.com/gulshan-bfrs03086/pocketprint/issues).

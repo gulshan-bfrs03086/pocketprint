@@ -20,6 +20,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.io.File
+import com.gulshan.pocketprint.ipp.PrinterTrust
+import com.gulshan.pocketprint.ipp.UntrustedCertificateException
 
 /**
  * The one place a job actually happens: render for the target printer, then
@@ -217,6 +219,27 @@ class PrintEngine(
         }.getOrElse {
             Log.w(TAG, "probe threw for ${printer.displayName}", it)
             printer
+        }
+    }
+
+    /**
+     * Why an IPPS printer cannot be reached over TLS - or null if it can, or
+     * if the address is not IPPS at all.
+     *
+     * probe() swallows every failure, which is right for a probe: a printer
+     * that is switched off is not an error. But a refused certificate is not
+     * "switched off", it is a question only the user can answer, and this is
+     * how the question reaches them instead of vanishing into a warn log.
+     */
+    suspend fun certificateProblem(printer: Printer): UntrustedCertificateException? {
+        val address = printer.address as? PrinterAddress.Ipp ?: return null
+        if (!address.secure) return null
+        return runCatching {
+            ippClient.getPrinterAttributes(address)
+            null
+        }.getOrElse {
+            if (it is kotlinx.coroutines.CancellationException) throw it
+            PrinterTrust.untrustedCause(it)
         }
     }
 

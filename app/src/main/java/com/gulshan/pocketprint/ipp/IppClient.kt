@@ -41,6 +41,20 @@ class IppClient(
     @Volatile private var boundClient: OkHttpClient? = null
 
     /**
+     * One TLS configuration per pinned certificate, on top of whichever
+     * network-bound client is current. Building an SSLContext per request
+     * would be wasteful; the set of pins is the set of saved IPPS printers.
+     */
+    private val secureClients = java.util.concurrent.ConcurrentHashMap<String, OkHttpClient>()
+
+    private fun clientFor(address: PrinterAddress.Ipp): OkHttpClient {
+        val base = client()
+        if (!address.secure) return base
+        val key = "${System.identityHashCode(base)}#${address.certificateSha256.orEmpty()}"
+        return secureClients.getOrPut(key) { PrinterTrust.secure(base, address.certificateSha256) }
+    }
+
+    /**
      * The client to use for this request.
      *
      * On a printer-only access point Android keeps cellular as the default
@@ -250,7 +264,7 @@ class IppClient(
             .header("User-Agent", "PocketPrint/1.0")
             .build()
 
-        client().newCall(request).execute().use { response ->
+        clientFor(address).newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
                 throw IppException("HTTP ${response.code} from ${address.httpUrl}")
             }

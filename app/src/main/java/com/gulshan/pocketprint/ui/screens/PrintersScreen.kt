@@ -82,6 +82,7 @@ import com.gulshan.pocketprint.ui.components.PrinterSettingsDialog
 import com.gulshan.pocketprint.ui.components.SectionHeader
 import com.gulshan.pocketprint.ui.components.WarningBanner
 import com.gulshan.pocketprint.ui.vm.PrintersViewModel
+import com.gulshan.pocketprint.ui.components.CertificatePromptDialog
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -100,6 +101,7 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
     val editing = saved.firstOrNull { it.id == editingId }
     var pickingForSetup by rememberSaveable { mutableStateOf(false) }
     val setupProgress by viewModel.setup.collectAsStateWithLifecycle()
+    val certificatePrompt by viewModel.certificatePrompt.collectAsStateWithLifecycle()
     val storageProblems by viewModel.storageProblems.collectAsStateWithLifecycle()
     val preview by viewModel.preview.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
@@ -529,10 +531,19 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
         )
     }
 
+    certificatePrompt?.let { prompt ->
+        CertificatePromptDialog(
+            prompt = prompt,
+            onTrust = { viewModel.trustCertificate() },
+            onDismiss = { viewModel.dismissCertificatePrompt() },
+        )
+    }
+
     editing?.let { target ->
         PrinterSettingsDialog(
             printer = target,
             onDismiss = { editingId = null },
+            onCheckCertificate = { viewModel.checkCertificate(target) },
             onSave = {
                 viewModel.updatePrinter(it)
                 editingId = null

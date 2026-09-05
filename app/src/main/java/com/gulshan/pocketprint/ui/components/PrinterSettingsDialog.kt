@@ -31,6 +31,8 @@ import com.gulshan.pocketprint.model.PrintLanguage
 import com.gulshan.pocketprint.model.Printer
 import com.gulshan.pocketprint.ui.MediaSizeSaver
 import com.gulshan.pocketprint.ui.enumSaver
+import com.gulshan.pocketprint.ipp.PrinterTrust
+import com.gulshan.pocketprint.model.PrinterAddress
 
 /**
  * Lets the user correct what the app guessed about a printer.
@@ -48,6 +50,7 @@ fun PrinterSettingsDialog(
     onTestPage: (Printer) -> Unit,
     onCopyReport: () -> Unit,
     onCalibrate: (Printer) -> Unit,
+    onCheckCertificate: () -> Unit = {},
 ) {
     // Needed for the ChipRow labels, which are plain lambdas rather than
     // composable ones and so cannot call stringResource.
@@ -276,6 +279,26 @@ fun PrinterSettingsDialog(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+
+                // Only an IPPS printer has a certificate to talk about. The pin
+                // is shown so it can be checked against the printer's own
+                // status page, which is the whole basis for trusting it.
+                (printer.address as? PrinterAddress.Ipp)?.takeIf { it.secure }?.let { ipps ->
+                    Text(
+                        stringResource(R.string.printer_certificate_section),
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                    Text(
+                        ipps.certificateSha256?.let {
+                            stringResource(R.string.printer_certificate_pinned, PrinterTrust.display(it))
+                        } ?: stringResource(R.string.printer_certificate_not_pinned),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    TextButton(onClick = onCheckCertificate) {
+                        Text(stringResource(R.string.printer_certificate_check))
+                    }
+                }
 
                 TextButton(onClick = { onTestPage(edited()) }) {
                     Text(stringResource(R.string.printer_test_page))

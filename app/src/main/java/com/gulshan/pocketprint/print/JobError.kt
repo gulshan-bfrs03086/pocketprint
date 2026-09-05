@@ -28,6 +28,13 @@ object JobError {
     fun explain(raw: String?): Int? {
         val message = raw?.lowercase() ?: return null
         return when {
+            // Before the network cases: a refused certificate also mentions a
+            // handshake, and the handshake is not the thing that is wrong.
+            "certificate has changed" in message -> R.string.job_error_certificate_changed
+
+            "certificate is not trusted" in message ||
+                "trust anchor" in message -> R.string.job_error_untrusted_certificate
+
             "socket might closed" in message ||
                 "broken pipe" in message ||
                 "connection reset" in message ||

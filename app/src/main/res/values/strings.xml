@@ -207,6 +207,26 @@
     <string name="job_error_pairing">Pairing failed. Remove the printer in Android\'s Bluetooth settings and pair it again - the PIN is usually 0000.</string>
     <string name="job_error_no_printer">That printer is no longer saved. Set it up again.</string>
     <string name="job_error_out_of_media">The printer reports it is out of media.</string>
+    <string name="job_error_untrusted_certificate">This printer\'s certificate is not trusted by this device. Open the printer\'s settings here, check the fingerprint against the one on the printer\'s own status page, and trust it.</string>
+    <string name="job_error_certificate_changed">This printer\'s certificate has changed since you trusted it. A firmware reset does that - so does something else answering at the printer\'s address. Check the new fingerprint at the printer itself before trusting it again.</string>
+
+    <!-- IPPS certificates. Printers sign their own; the user vouches for one. -->
+    <string name="printer_certificate_section">Certificate</string>
+    <string name="printer_certificate_pinned">Trusted: %1$s</string>
+    <string name="printer_certificate_not_pinned">Not trusted yet. IPPS printers almost always present a certificate they signed themselves, which this device will not accept until you have.</string>
+    <string name="printer_certificate_check">Check the printer\'s certificate</string>
+    <string name="certificate_title_untrusted">Trust this printer\'s certificate?</string>
+    <string name="certificate_title_changed">The printer\'s certificate has changed</string>
+    <string name="certificate_title_trusted">Certificate trusted</string>
+    <string name="certificate_body_untrusted">%1$s presents a certificate nobody vouches for. That is normal for a printer - and also exactly what an impostor on the network would do. Compare the fingerprint with the one on the printer\'s own status page or menu before trusting it.</string>
+    <string name="certificate_body_changed">It was trusted with fingerprint %1$s. A firmware reset explains that; so does another device answering at the printer\'s address. Check the new fingerprint at the printer itself.</string>
+    <string name="certificate_body_trusted">This device already accepts the certificate %1$s presents. Nothing to do.</string>
+    <string name="certificate_subject">Issued to: %1$s</string>
+    <string name="certificate_fingerprint">SHA-256 fingerprint</string>
+    <string name="certificate_expires">Valid until %1$s</string>
+    <string name="certificate_trust">Trust this certificate</string>
+    <string name="certificate_not_now">Not now</string>
+    <string name="certificate_close">Close</string>
 
     <!-- Job outcomes and progress.
          The IPP job-state names and job-state-reasons keywords that some of
