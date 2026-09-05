@@ -1,7 +1,5 @@
 package com.gulshan.pocketprint.printservice
 
-import android.os.Handler
-import android.os.Looper
 import android.os.ParcelFileDescriptor
 import android.print.PrintAttributes
 import android.print.PrinterCapabilitiesInfo
@@ -20,7 +18,6 @@ import com.gulshan.pocketprint.model.Orientation
 import com.gulshan.pocketprint.model.PrintOptions
 import com.gulshan.pocketprint.model.PrintResult
 import com.gulshan.pocketprint.model.Printer
-import com.gulshan.pocketprint.print.JobError
 import com.gulshan.pocketprint.print.JobListener
 import com.gulshan.pocketprint.print.PrinterAvailability
 import com.gulshan.pocketprint.render.Spool
@@ -64,50 +61,29 @@ class PocketPrintService : PrintService() {
         PocketDiscoverySession(this, scope)
 
     /**
-     * Every accessor on PrintJob and PrintDocument begins with
-     * PrintService.throwIfNotCalledOnMainThread(), so the job handle must not be
-     * touched from a worker. This callback already runs on the main thread, so
-     * everything the background work needs — the id, the label, the attributes
-     * and the document's file descriptor — is captured here, and only plain
-     * values cross onto the IO dispatcher.
+     * The framework calls this on the main thread with a handle that must not
+     * be touched anywhere else. PrintFramework turns it into plain values plus
+     * a handle whose every method posts back to the looper, and that is the
+     * only shape of it a coroutine ever sees.
      */
     override fun onPrintJobQueued(printJob: PrintJob) {
-        val info = printJob.info
-        val localId = info.printerId?.localId
-
-        if (localId == null) {
-            printJob.fail(getString(R.string.system_no_printer_selected))
-            return
-        }
-
-        val jobKey = printJob.id.toString()
-        val jobLabel = info.label?.toString() ?: "Print job"
-        val options = optionsFrom(info.attributes, info.copies)
-
-        // Taking the descriptor here, before start(), keeps the one main-thread
-        // read of the document together with the rest of the handle access.
-        val descriptor = runCatching { printJob.document?.data }.getOrNull()
-        if (descriptor == null) {
-            printJob.fail(getString(R.string.system_document_unreadable))
-            return
-        }
-
-        printJob.start()
+        val queued = PrintFramework.take(this, printJob) ?: return
+        val options = optionsFrom(queued.info.attributes, queued.info.copies)
 
         val job = scope.launch {
             try {
                 val printer = ServiceLocator.printerRepository(applicationContext)
                     .saved.first()
-                    .firstOrNull { it.id == localId }
+                    .firstOrNull { it.id == queued.localId }
 
                 if (printer == null) {
-                    fail(printJob, getString(R.string.system_printer_gone))
+                    queued.handle.fail(getString(R.string.system_printer_gone))
                     return@launch
                 }
 
-                val spooled = spoolDocument(descriptor)
+                val spooled = spoolDocument(queued.descriptor)
                 if (spooled == null) {
-                    fail(printJob, getString(R.string.system_document_unreadable))
+                    queued.handle.fail(getString(R.string.system_document_unreadable))
                     return@launch
                 }
 
@@ -116,7 +92,7 @@ class PocketPrintService : PrintService() {
                         val result = ServiceLocator.printEngine(applicationContext).printPdf(
                             printer = printer,
                             pdf = spooled,
-                            jobName = jobLabel,
+                            jobName = queued.label,
                             options = options,
                             // Without this the dialog shows "printing" while the
                             // job sits behind another one on the same printer,
@@ -125,15 +101,14 @@ class PocketPrintService : PrintService() {
                             listener = JobListener(
                                 onWaitingForPrinter = { waiting ->
                                     if (waiting) {
-                                        block(
-                                            printJob,
+                                        queued.handle.block(
                                             getString(
                                                 R.string.system_waiting_for_printer,
                                                 printer.displayName,
                                             ),
                                         )
                                     } else {
-                                        resume(printJob)
+                                        queued.handle.resume()
                                     }
                                 },
                             ),
@@ -147,7 +122,7 @@ class PocketPrintService : PrintService() {
                         // the reason can actually be shown.
                         is PrintResult.Completed -> {
                             Log.i(TAG, "${printer.displayName} confirmed ${result.bytesSent} bytes")
-                            complete(printJob)
+                            queued.handle.complete()
                         }
                         is PrintResult.Sent -> {
                             Log.i(
@@ -155,30 +130,27 @@ class PocketPrintService : PrintService() {
                                 "sent ${result.bytesSent} bytes to ${printer.displayName}, " +
                                     "unconfirmed: ${result.reason}",
                             )
-                            complete(printJob)
+                            queued.handle.complete()
                         }
-                        is PrintResult.Failure -> fail(printJob, result.message)
+                        is PrintResult.Failure -> queued.handle.fail(result.message)
                     }
                 } finally {
                     runCatching { spooled.delete() }
                 }
             } catch (t: Throwable) {
                 Log.e(TAG, "job failed", t)
-                fail(printJob, t.message ?: getString(R.string.system_print_failed))
+                queued.handle.fail(t.message ?: getString(R.string.system_print_failed))
             } finally {
-                // jobKey was captured on the main thread; reading printJob.id
-                // here would throw and escape the coroutine.
-                activeJobs.remove(jobKey)
+                activeJobs.remove(queued.key)
             }
         }
 
-        activeJobs[jobKey] = job
+        activeJobs[queued.key] = job
     }
 
     override fun onRequestCancelPrintJob(printJob: PrintJob) {
-        // This callback runs on the main thread, so the id is safe to read.
-        activeJobs.remove(printJob.id.toString())?.cancel()
-        if (printJob.isStarted || printJob.isQueued) printJob.cancel()
+        activeJobs.remove(PrintFramework.keyOf(printJob))?.cancel()
+        PrintFramework.cancel(printJob)
     }
 
     override fun onDestroy() {
@@ -187,8 +159,8 @@ class PocketPrintService : PrintService() {
     }
 
     /**
-     * Copies the framework's PDF out of the descriptor captured on the main
-     * thread. Only the descriptor crosses threads, never the PrintJob.
+     * Copies the framework's PDF out of the descriptor PrintFramework.take
+     * captured on the main thread. Only the descriptor crosses threads.
      */
     private suspend fun spoolDocument(descriptor: ParcelFileDescriptor): File? =
         withContext(Dispatchers.IO) {
@@ -240,35 +212,6 @@ class PocketPrintService : PrintService() {
             },
             dpi = attributes?.resolution?.horizontalDpi?.takeIf { it > 0 } ?: 300,
         )
-    }
-
-    // PrintJob state transitions must happen on the main thread.
-    private fun complete(printJob: PrintJob) = onMain {
-        if (!printJob.isCompleted) printJob.complete()
-    }
-
-    private fun block(printJob: PrintJob, reason: String) = onMain {
-        if (printJob.isStarted) printJob.block(reason)
-    }
-
-    /** The framework's name for leaving the blocked state is start(). */
-    private fun resume(printJob: PrintJob) = onMain {
-        if (printJob.isBlocked) printJob.start()
-    }
-
-    /**
-     * The dialog this lands in belongs to another app, which has no idea what a
-     * closed RFCOMM socket is. Where the failure is one of the recognised ones,
-     * it goes out as the sentence a person can act on; where it is not, the raw
-     * message goes out unchanged rather than being replaced by a vaguer one.
-     */
-    private fun fail(printJob: PrintJob, message: String) = onMain {
-        val readable = JobError.explain(message)?.let { getString(it) } ?: message
-        if (!printJob.isFailed) printJob.fail(readable)
-    }
-
-    private fun onMain(block: () -> Unit) {
-        Handler(Looper.getMainLooper()).post { runCatching { block() } }
     }
 }
 

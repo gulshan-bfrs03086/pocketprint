@@ -5,10 +5,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.os.Handler
-import android.os.Looper
 import android.print.PrinterId
-import android.print.PrinterInfo
 import android.printservice.PrintService
 import android.printservice.PrinterDiscoverySession
 import android.util.Log
@@ -34,7 +31,9 @@ class PocketDiscoverySession(
     private val scope: CoroutineScope,
 ) : PrinterDiscoverySession() {
 
-    private val main = Handler(Looper.getMainLooper())
+    // Every generatePrinterId, addPrinters and removePrinters for this session
+    // goes through here, and nowhere else - see PrintFramework.
+    private val publisher by lazy { PrintFramework.Publisher(service, this) }
     private var watchJob: Job? = null
     private val known = java.util.concurrent.ConcurrentHashMap<String, Printer>()
 
@@ -113,12 +112,14 @@ class PocketDiscoverySession(
      * real query; everything else already carries static capabilities.
      */
     override fun onValidatePrinters(printerIds: MutableList<PrinterId>) {
+        // The list belongs to the framework; read it before leaving its thread.
+        val localIds = printerIds.map { it.localId }
         scope.launch {
             val engine = ServiceLocator.printEngine(service.applicationContext)
             val repository = ServiceLocator.printerRepository(service.applicationContext)
 
-            val refreshed = printerIds.mapNotNull { id ->
-                val printer = known[id.localId] ?: repository.find(id.localId) ?: return@mapNotNull null
+            val refreshed = localIds.mapNotNull { localId ->
+                val printer = known[localId] ?: repository.find(localId) ?: return@mapNotNull null
                 val probed = engine.probe(printer)
                 if (probed != printer) repository.save(probed)
                 engine.networkStatus(probed)?.let { networkStatus[probed.id] = it }
@@ -134,9 +135,10 @@ class PocketDiscoverySession(
      * it is idle, printing or stopped.
      */
     override fun onStartPrinterStateTracking(printerId: PrinterId) {
+        val localId = printerId.localId
         scope.launch {
             val repository = ServiceLocator.printerRepository(service.applicationContext)
-            val printer = repository.find(printerId.localId) ?: return@launch
+            val printer = repository.find(localId) ?: return@launch
             val engine = ServiceLocator.printEngine(service.applicationContext)
             val probed = engine.probe(printer)
             engine.networkStatus(probed)?.let { networkStatus[probed.id] = it }
@@ -160,20 +162,19 @@ class PocketDiscoverySession(
         val gone = known.keys.filterNot { it in stillVisible }
         if (gone.isEmpty()) return
         gone.forEach { known.remove(it); networkStatus.remove(it) }
-        // generatePrinterId is main-thread only, exactly like removePrinters.
-        main.post {
-            runCatching { removePrinters(gone.map { service.generatePrinterId(it) }) }
-        }
+        publisher.retire(gone)
     }
 
     /**
      * Publishes printers to the framework.
      *
-     * Both generatePrinterId and addPrinters are annotated @MainThread and begin
-     * with PrintService.throwIfNotCalledOnMainThread(), so the whole PrinterInfo
-     * construction has to happen on the main looper — not just the final
-     * addPrinters call. Building the ids on a worker threw IllegalAccessError
-     * for every printer, which left the system print dialog searching forever.
+     * generatePrinterId and addPrinters both begin with
+     * PrintService.throwIfNotCalledOnMainThread() - neither carries an
+     * @MainThread annotation, so no lint check will ever say so. Building the
+     * ids on a worker threw IllegalAccessError for every printer, runCatching
+     * swallowed it, and the system print dialog searched forever. The whole
+     * PrinterInfo construction now happens inside PrintFramework.Publisher, on
+     * the main looper, and this class holds no PrinterId of its own.
      */
     private fun publish(printers: List<Printer>) {
         if (printers.isEmpty()) return
@@ -189,24 +190,6 @@ class PocketDiscoverySession(
                 networkStatus = networkStatus[printer.id],
             )
         }
-
-        main.post {
-            val infos: List<PrinterInfo> = printers.mapNotNull { printer ->
-                runCatching {
-                    buildPrinterInfo(
-                        printer = printer,
-                        printerId = service.generatePrinterId(printer.id),
-                        packageName = service.packageName,
-                        availability = availability[printer.id] ?: PrinterAvailability.IDLE,
-                    )
-                }.onFailure {
-                    Log.w(TAG, "could not publish ${printer.displayName}", it)
-                }.getOrNull()
-            }
-            Log.i(TAG, "publishing ${infos.size} printers to the framework")
-            if (infos.isEmpty()) return@post
-            runCatching { addPrinters(infos) }
-                .onFailure { Log.w(TAG, "addPrinters rejected ${infos.size} printers", it) }
-        }
+        publisher.publish(printers, availability)
     }
 }
