@@ -56,6 +56,33 @@ jobs:
       - name: Unit tests
         run: ./gradlew testDebugUnitTest --no-daemon
 
+      # Those tests skip themselves when ippeveprinter is absent. It was
+      # installed above, so a skip here means the server did not start - and
+      # a verification that quietly did not happen must not read as a pass.
+      # Prints each live test's outcome so the log says what was shown.
+      - name: The live IPP tests ran, rather than skipped
+        run: |
+          report=app/build/test-results/testDebugUnitTest/TEST-com.gulshan.pocketprint.IppEverywhereLiveTest.xml
+          test -f "$report" || { echo "::error::no test report for IppEverywhereLiveTest"; exit 1; }
+          python3 - "$report" <<'PY'
+          import sys, xml.etree.ElementTree as ET
+          r = ET.parse(sys.argv[1]).getroot()
+          tests, skipped = int(r.get("tests")), int(r.get("skipped"))
+          failed = int(r.get("failures")) + int(r.get("errors"))
+          for tc in r.iter("testcase"):
+              el = tc.find("skipped")
+              state = "SKIPPED" if el is not None else ("FAILED" if tc.find("failure") is not None or tc.find("error") is not None else "passed")
+              print(f"  {state:8} {tc.get('name')}")
+              if el is not None and el.get("message"):
+                  print(f"           {el.get('message')}")
+          if tests == 0 or skipped == tests:
+              print("::error::every live IPP test skipped: ippeveprinter is installed, so it did not start")
+              sys.exit(1)
+          if failed:
+              sys.exit(1)
+          print(f"{tests - skipped} of {tests} live IPP tests ran against ippeveprinter")
+          PY
+
       # assembleRelease also runs lintVitalRelease and R8, which have caught
       # real defects here (an invalid backup-rules path, missing keep rules).
       - name: Assemble debug and release
