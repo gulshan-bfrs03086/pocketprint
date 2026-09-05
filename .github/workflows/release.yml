@@ -68,7 +68,7 @@ jobs:
 
       # The same gate main gets. A release is the worst place to find out that
       # a test was failing.
-      - name: Unit tests (both variants)
+      - name: Unit tests
         run: ./gradlew testDebugUnitTest --no-daemon
 
       - name: Assemble the signed release APK
@@ -143,7 +143,7 @@ jobs:
           sha256sum pocketprint.apk > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
-      - name: Upload the APKs as run artifacts
+      - name: Upload the APK as a run artifact
         uses: actions/upload-artifact@v7
         with:
           name: release-apks
