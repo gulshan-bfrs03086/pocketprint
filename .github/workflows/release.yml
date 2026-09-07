@@ -20,6 +20,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
+        with:
+          # The notes list what changed since the previous tag, which needs
+          # that tag and the commits between. A shallow clone has neither.
+          fetch-depth: 0
 
       # Fail in the first ten seconds rather than four minutes later holding two
       # APKs named "-unsigned" that would otherwise get attached to a release.
@@ -187,16 +191,30 @@ jobs:
             exit 0
           fi
 
+          # The nearest v* tag on the first-parent line before this one. Empty
+          # for a first release, in which case there is nothing to list.
+          previous="$(git describe --tags --match 'v*' --abbrev=0 "${GITHUB_REF_NAME}^" 2>/dev/null || true)"
+
           {
             echo "## PocketPrint $version"
             echo
             echo "One build, for Android 7.0 (API 24) and up. It asks for no"
-            echo "location permission."
+            echo "location permission. Installs over any earlier signed release"
+            echo "(v1.1.0 and later) - same signing key, same applicationId, a"
+            echo "higher version code. Nothing to uninstall."
             echo
-            echo "It replaces the separate \`modern\` and \`legacy\` APKs, and"
-            echo "installs over either of them - same signing key, same"
-            echo "applicationId, a higher version code. Nothing to uninstall."
-            echo
+
+            if [ -n "$previous" ]; then
+              # The commit log, not the story: this repository writes commit
+              # subjects as sentences, which makes them a usable first draft
+              # and nothing more. The draft is edited before it is published.
+              echo "## What changed since $previous"
+              echo
+              git log --no-merges --format='- %s' "$previous..$GITHUB_REF_NAME" |
+                grep -vE '^- Open [0-9]+\.[0-9]+\.[0-9]+$'
+              echo
+            fi
+
             echo "Checksums are in the attached \`SHA256SUMS.txt\`."
             echo
             echo "## Checking what you downloaded"
@@ -218,6 +236,12 @@ jobs:
                  "filename says - and Android will refuse to install it over" \
                  "this one."
           } > dist/NOTES.md
+
+          if [ -n "$previous" ]; then
+            echo "::notice::The draft's 'What changed since $previous' is the commit log. Edit it into release notes before publishing."
+          else
+            echo "::notice::No earlier v* tag, so the draft has no 'What changed' section."
+          fi
 
           gh release create "$GITHUB_REF_NAME" \
             --draft \

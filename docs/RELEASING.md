@@ -121,7 +121,8 @@ feature and asks for exactly the permissions the docs describe, reads the
 signing certificate's fingerprint back out of the signed APK — into the log and
 into the release notes, so a download can be checked against it — and **drafts**
 a release carrying the APK and its SHA-256 sum. It never publishes — someone reads the
-draft and presses the button. `workflow_dispatch` does all of that except touch
+draft and presses the button. The draft's "What changed since vX.Y.Z" section is the
+commit log since the previous tag — a first draft, not the notes. Edit it before publishing. `workflow_dispatch` does all of that except touch
 the Releases page, which makes it a usable dry run.
 
 If a release already exists for the tag — because a previous run failed part
