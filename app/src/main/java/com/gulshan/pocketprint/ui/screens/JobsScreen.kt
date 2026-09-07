@@ -13,6 +13,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import com.gulshan.pocketprint.ui.ByteSize
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -96,11 +97,11 @@ fun JobsScreen(viewModel: PrintersViewModel) {
                             // and the row carries the reason underneath.
                             JobState.COMPLETED -> stringResource(
                                 R.string.jobs_printed,
-                                (job.bytesSent / 1024).toInt(),
+                                sizeText(job.bytesSent),
                             )
                             JobState.SENT -> stringResource(
                                 R.string.jobs_sent_unconfirmed,
-                                (job.bytesSent / 1024).toInt(),
+                                sizeText(job.bytesSent),
                             )
                             JobState.FAILED -> job.error ?: stringResource(R.string.jobs_failed)
 
@@ -171,4 +172,21 @@ fun JobsScreen(viewModel: PrintersViewModel) {
             }
         }
     }
+}
+
+/**
+ * The byte count as a phrase, in whatever unit does not round it to nothing.
+ * See [ByteSize] for why a label job used to report zero.
+ */
+@Composable
+private fun sizeText(bytes: Long): String {
+    val size = ByteSize.of(bytes)
+    return stringResource(
+        when (size.unit) {
+            ByteSize.Unit.BYTES -> R.string.jobs_size_bytes
+            ByteSize.Unit.KILOBYTES -> R.string.jobs_size_kilobytes
+            ByteSize.Unit.MEGABYTES -> R.string.jobs_size_megabytes
+        },
+        size.value,
+    )
 }
