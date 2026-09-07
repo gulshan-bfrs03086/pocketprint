@@ -315,6 +315,18 @@ refused to the point where Android stops asking, the app says so and offers the 
 ## Build
 
 ```bash
+make            # the list of targets
+make build      # the debug APK
+make test       # the unit tests
+make check      # builds, then runs all five gates below
+make ci         # everything CI runs, in CI's order
+```
+
+The `Makefile` is a wrapper and nothing more: it points `JAVA_HOME` at the JDK 17 that AGP
+requires — newer ones fail with an error that never mentions the JDK — and remembers the paths.
+Everything it runs can be run directly, which is what CI does:
+
+```bash
 export JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home
 
 ./gradlew assembleDebug

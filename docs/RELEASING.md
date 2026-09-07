@@ -44,7 +44,7 @@ version that shipped; a branch names a version being built.
 ## Cutting a version
 
 ```bash
-./scripts/cut-release.sh 1.1
+./scripts/cut-release.sh 1.1     # or: make cut-release VERSION=1.1
 ```
 
 That checks the tree is clean and `main` is current, branches `release/1.1`,
@@ -122,7 +122,7 @@ because a pull request from a fork gets no secrets and should get none. To ask
 for an unsigned release deliberately — to look at what R8 emitted, say:
 
 ```bash
-./gradlew assembleRelease -PallowUnsignedRelease=true
+./gradlew assembleRelease -PallowUnsignedRelease=true   # or: make release-unsigned
 ```
 
 ### Signing on CI
