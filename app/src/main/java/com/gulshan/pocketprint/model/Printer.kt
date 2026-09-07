@@ -115,23 +115,53 @@ data class MediaSize(
     fun dotsHigh(dpi: Int) = Math.round(heightMicrons / 25400f * dpi)
 
     companion object {
-        val A4 = MediaSize("iso_a4_210x297mm", "A4", 210_000, 297_000)
-        val A5 = MediaSize("iso_a5_148x210mm", "A5", 148_000, 210_000)
-        val LETTER = MediaSize("na_letter_8.5x11in", "Letter", 215_900, 279_400)
-        val LEGAL = MediaSize("na_legal_8.5x14in", "Legal", 215_900, 355_600)
-        val PHOTO_4X6 = MediaSize("na_index-4x6_4x6in", "4 x 6 photo", 101_600, 152_400)
+        /**
+         * Dimensions are derived from the unit the stock is actually sold in,
+         * never typed in as microns. LABEL_4X6 once read 100 x 150 mm - a
+         * plausible-looking number for a 4 x 6 inch label, and 2.4 mm short -
+         * and a TSPL printer told that looked for the inter-label gap early,
+         * missed it, kept feeding and stopped with a media fault. A number
+         * written as inch(4) cannot be wrong in that way, and MediaSizeTest
+         * checks every id below against the dimensions it declares.
+         */
+        private fun mm(value: Double): Int = Math.round(value * 1_000).toInt()
+        private fun inch(value: Double): Int = Math.round(value * 25_400).toInt()
+
+        val A4 = MediaSize("iso_a4_210x297mm", "A4", mm(210.0), mm(297.0))
+        val A5 = MediaSize("iso_a5_148x210mm", "A5", mm(148.0), mm(210.0))
+        val LETTER = MediaSize("na_letter_8.5x11in", "Letter", inch(8.5), inch(11.0))
+        val LEGAL = MediaSize("na_legal_8.5x14in", "Legal", inch(8.5), inch(14.0))
+
+        /**
+         * The same 4 x 6 inches as LABEL_4X6, under the name photo and IPP
+         * printers advertise it by (PWG 5101.1's na_index-4x6). Two entries
+         * for one physical size is deliberate: they are different stock, they
+         * belong in different lists, and IPP media matching goes by dimension
+         * anyway, so either reaches a printer that offers 4 x 6.
+         */
+        val PHOTO_4X6 = MediaSize("na_index-4x6_4x6in", "4 x 6 photo", inch(4.0), inch(6.0))
+
         /**
          * A "4 x 6" shipping label is 4 x 6 INCHES: 101.6 x 152.4 mm. Sending
          * 100 x 150 mm instead makes a TSPL printer look for the inter-label gap
          * 2.4 mm early, miss it, keep feeding, and stop with a media fault.
          */
-        val LABEL_4X6 = MediaSize("om_label-4x6_101.6x152.4mm", "4 x 6 in label", 101_600, 152_400)
+        val LABEL_4X6 = MediaSize("om_label-4x6_101.6x152.4mm", "4 x 6 in label", inch(4.0), inch(6.0))
 
         /** The metric near-equivalent, which is a genuinely different stock. */
-        val LABEL_100X150 = MediaSize("om_label_100x150mm", "Label 100 x 150 mm", 100_000, 150_000)
-        val LABEL_100X50 = MediaSize("om_label-100x50_100x50mm", "Label 100 x 50 mm", 100_000, 50_000)
-        val RECEIPT_80 = MediaSize("om_receipt-80_80x297mm", "Receipt 80 mm", 80_000, 297_000)
-        val RECEIPT_58 = MediaSize("om_receipt-58_58x297mm", "Receipt 58 mm", 58_000, 297_000)
+        val LABEL_100X150 = MediaSize("om_label_100x150mm", "Label 100 x 150 mm", mm(100.0), mm(150.0))
+        val LABEL_100X50 = MediaSize("om_label-100x50_100x50mm", "Label 100 x 50 mm", mm(100.0), mm(50.0))
+
+        /**
+         * Receipt stock is a continuous roll, so only the width is a property
+         * of the paper. The length is the page a document is paginated into -
+         * PdfBuilder and the raster encoders use it as the page height, and the
+         * label dialects as the feed length - and it is A4's, so a document laid
+         * out for A4 lands on a roll with no surprises. Not a claim about the
+         * roll; a choice about the page, and MediaSizeTest pins it as one.
+         */
+        val RECEIPT_80 = MediaSize("om_receipt-80_80x297mm", "Receipt 80 mm", mm(80.0), mm(297.0))
+        val RECEIPT_58 = MediaSize("om_receipt-58_58x297mm", "Receipt 58 mm", mm(58.0), mm(297.0))
 
         val PAPER = listOf(A4, LETTER, LEGAL, A5, PHOTO_4X6)
         val LABELS = listOf(LABEL_4X6, LABEL_100X150, LABEL_100X50, RECEIPT_80, RECEIPT_58)
