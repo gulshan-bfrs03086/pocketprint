@@ -61,7 +61,32 @@ data class PrintOptions(
  * SENT means the bytes left the device and nothing more. COMPLETED means the
  * printer said so.
  */
-enum class JobState { QUEUED, RENDERING, SENDING, SENT, COMPLETED, FAILED, CANCELLED }
+/**
+ * Where a job got to.
+ *
+ * [INTERRUPTED] is the one that says the least, on purpose. It means the app
+ * stopped - killed, swiped away, crashed - while the job was still in flight,
+ * so nobody can say whether the printer printed it. It is not [FAILED], which
+ * claims the job did not happen, and not [CANCELLED], which claims somebody
+ * asked for it to stop. Both of those would be guesses, and on a shipping
+ * label a wrong guess costs either a duplicate or a missing parcel.
+ */
+enum class JobState {
+    QUEUED,
+    RENDERING,
+    SENDING,
+    SENT,
+    COMPLETED,
+    FAILED,
+    CANCELLED,
+    INTERRUPTED,
+    ;
+
+    /** Nothing more will happen to a job in this state. */
+    val terminal: Boolean
+        get() = this == SENT || this == COMPLETED || this == FAILED ||
+            this == CANCELLED || this == INTERRUPTED
+}
 
 @Serializable
 data class PrintJobRecord(

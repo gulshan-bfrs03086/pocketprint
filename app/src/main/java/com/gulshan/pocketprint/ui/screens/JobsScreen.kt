@@ -31,8 +31,6 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-private val UNFINISHED = setOf(JobState.QUEUED, JobState.RENDERING, JobState.SENDING)
-
 @Composable
 fun JobsScreen(viewModel: PrintersViewModel) {
     val jobs by viewModel.jobs.collectAsStateWithLifecycle()
@@ -106,6 +104,13 @@ fun JobsScreen(viewModel: PrintersViewModel) {
                             )
                             JobState.FAILED -> job.error ?: stringResource(R.string.jobs_failed)
 
+                            // Says less than every other terminal state, which
+                            // is the whole reason it exists. Rendered from the
+                            // state rather than from a message stored at the
+                            // time, so it is in the reader's language and not
+                            // whichever one was set when the app was killed.
+                            JobState.INTERRUPTED -> stringResource(R.string.jobs_interrupted)
+
                             else -> job.state.name.lowercase()
                                 .replaceFirstChar { it.uppercase() }
                         },
@@ -113,7 +118,10 @@ fun JobsScreen(viewModel: PrintersViewModel) {
                         color = when (job.state) {
                             JobState.FAILED -> MaterialTheme.colorScheme.error
                             JobState.COMPLETED -> Color(0xFF2E7D32)
-                            JobState.SENT -> Color(0xFF8A6D00)
+                            // Amber with SENT rather than red with FAILED:
+                            // both of those mean the outcome is unconfirmed,
+                            // not that anything is known to have gone wrong.
+                            JobState.SENT, JobState.INTERRUPTED -> Color(0xFF8A6D00)
                             else -> MaterialTheme.colorScheme.onSurfaceVariant
                         },
                         modifier = Modifier.padding(top = 4.dp),
@@ -144,7 +152,7 @@ fun JobsScreen(viewModel: PrintersViewModel) {
                     // A job that has not finished is one somebody may need to
                     // stop. Before this, a printer that stopped reading meant
                     // force-stopping the app.
-                    if (job.state in UNFINISHED) {
+                    if (!job.state.terminal) {
                         TextButton(
                             onClick = { viewModel.cancelJob(job) },
                             modifier = Modifier.padding(top = 4.dp),
