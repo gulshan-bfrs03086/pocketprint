@@ -172,6 +172,7 @@
     <string name="printers_remove">Remove</string>
     <string name="printers_choose_document_first">Choose a document first</string>
     <string name="printers_tap_to_print">Tap to print</string>
+    <string name="printers_document_more">and %1$d more</string>
     <string name="printers_discovered">DISCOVERED</string>
     <string name="printers_scan">Scan</string>
     <string name="printers_nothing_found">Nothing found yet. Wi-Fi printers must be on the same network; Bluetooth printers must already be paired in Android Settings.</string>
@@ -305,11 +306,20 @@
     <string name="preview_failed">The page could not be rendered.</string>
 
     <!-- Share target -->
-    <string name="share_multiple">PocketPrint prints one document at a time; using the first of %1$d shared files.</string>
+    <string name="share_batch_partial">%1$d of %2$d shared files are ready to print; the rest could not be used.</string>
+    <string name="share_none_printable">None of the shared files can be printed.</string>
     <string name="share_not_a_file">PocketPrint accepts shared files, not raw file paths.</string>
     <string name="share_unreadable">That file could not be read: %1$s</string>
     <string name="share_cannot_print">PocketPrint can\'t print %1$s (%2$s).</string>
     <string name="share_too_large">%1$s is over the %2$d MB limit for a print job.</string>
     <string name="share_too_slow">%1$s took too long to read; nothing was printed.</string>
     <string name="share_text_truncated">That text is very long; printing the first %1$d characters.</string>
+    <plurals name="printers_tap_to_print_many">
+        <item quantity="one">Tap to print 1 file</item>
+        <item quantity="other">Tap to print %1$d files, one after another</item>
+    </plurals>
+    <plurals name="share_batch_ready">
+        <item quantity="one">%1$d file is ready to print.</item>
+        <item quantity="other">%1$d files are ready to print, and will print one after another.</item>
+    </plurals>
 </resources>

@@ -94,7 +94,11 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
     val context = LocalContext.current
     val discovery by viewModel.discovery.collectAsStateWithLifecycle()
     val saved by viewModel.savedPrinters.collectAsStateWithLifecycle()
-    val document by viewModel.selectedDocument.collectAsStateWithLifecycle()
+    val documents by viewModel.documents.collectAsStateWithLifecycle()
+    // A share can stage several. The card names the first and counts the
+    // rest; everything that only needs to know whether there is anything to
+    // print asks the list.
+    val document = documents.firstOrNull()
     val options by viewModel.options.collectAsStateWithLifecycle()
 
     var showAddDialog by rememberSaveable { mutableStateOf(false) }
@@ -274,6 +278,16 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
+                    if (documents.size > 1) {
+                        Text(
+                            stringResource(
+                                R.string.printers_document_more,
+                                documents.size - 1,
+                            ),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                     Row(
                         Modifier.padding(top = 12.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -281,7 +295,7 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
                         Button(onClick = { pickDocument.launch(arrayOf("*/*")) }) {
                             Text(stringResource(R.string.printers_choose_file))
                         }
-                        if (document != null) {
+                        if (documents.isNotEmpty()) {
                             OutlinedButton(onClick = { viewModel.setDocument(null) }) {
                                 Text(stringResource(R.string.action_clear))
                             }
@@ -381,7 +395,7 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
                         // away from that, not buried.
                         IconButton(
                             onClick = { viewModel.previewOn(printer) },
-                            enabled = document != null,
+                            enabled = documents.isNotEmpty(),
                         ) {
                             Icon(Icons.Filled.Visibility, contentDescription = stringResource(R.string.printers_preview))
                         }
@@ -393,7 +407,7 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
                         }
                     }
                 },
-                enabled = document != null,
+                enabled = documents.isNotEmpty(),
                 onClick = {
                     // Asked for here because this is when a job is about to run
                     // in the background, and refused or not the job still goes:
@@ -409,10 +423,17 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
                         }
                     permissions.ensure(wanted) { viewModel.print(printer) }
                 },
-                subtitleOverride = if (document == null) {
-                    stringResource(R.string.printers_choose_document_first)
-                } else {
-                    stringResource(R.string.printers_tap_to_print)
+                subtitleOverride = when {
+                    documents.isEmpty() ->
+                        stringResource(R.string.printers_choose_document_first)
+                    // Says how many, because tapping a row on a thermal printer
+                    // spends that many labels.
+                    documents.size > 1 -> pluralStringResource(
+                        R.plurals.printers_tap_to_print_many,
+                        documents.size,
+                        documents.size,
+                    )
+                    else -> stringResource(R.string.printers_tap_to_print)
                 },
             )
         }

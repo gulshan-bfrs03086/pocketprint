@@ -105,8 +105,16 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
     private val _discovery = MutableStateFlow(DiscoveryState())
     val discovery: StateFlow<DiscoveryState> = _discovery.asStateFlow()
 
-    private val _selectedDocument = MutableStateFlow<SourceDocument?>(null)
-    val selectedDocument: StateFlow<SourceDocument?> = _selectedDocument.asStateFlow()
+    /**
+     * What is staged to print, in the order it arrived.
+     *
+     * A list rather than one document because a share can carry several, and
+     * because each of them deserves its own job: its own history row, its own
+     * progress, its own Cancel. Merging them into one job would buy a single
+     * row that could only report the outcome of whichever part failed last.
+     */
+    private val _documents = MutableStateFlow<List<SourceDocument>>(emptyList())
+    val documents: StateFlow<List<SourceDocument>> = _documents.asStateFlow()
 
     /**
      * Label jobs still running, so [cancelJob] can find one.
@@ -422,7 +430,7 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
      */
     fun selectDocument(uri: Uri) = viewModelScope.launch {
         val described = Spool.describe(getApplication(), uri)
-        _selectedDocument.value = runCatching {
+        val document = runCatching {
             val suffix = described.extension.takeIf { it.isNotBlank() }?.let { ".$it" } ?: ".bin"
             val local = Spool.copyToCache(getApplication(), uri, suffix)
             described.copy(uri = Uri.fromFile(local).toString(), sizeBytes = local.length())
@@ -435,9 +443,18 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
             )
             described
         }
+        // The picker takes one file, and picking replaces whatever was staged.
+        _documents.value = listOf(document)
     }
 
-    fun setDocument(document: SourceDocument?) { _selectedDocument.value = document }
+    fun setDocument(document: SourceDocument?) {
+        _documents.value = listOfNotNull(document)
+    }
+
+    /** Stages a whole shared batch. Order is the order the sender gave. */
+    fun setDocuments(documents: List<SourceDocument>) {
+        _documents.value = documents
+    }
 
     /**
      * Shared plain text and links carry no content URI, so a link is kept as a
@@ -447,7 +464,7 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
      */
     fun setSharedText(text: String, subject: String?) = viewModelScope.launch {
         val trimmed = text.trim()
-        _selectedDocument.value = if (
+        val document = if (
             trimmed.startsWith("http://") || trimmed.startsWith("https://")
         ) {
             SourceDocument(
@@ -466,15 +483,30 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
                 sizeBytes = file.length(),
             )
         }
+        _documents.value = listOf(document)
     }
 
     fun updateOptions(transform: (PrintOptions) -> PrintOptions) {
         _options.value = transform(_options.value)
     }
 
+    /**
+     * Prints everything staged, as one job per document.
+     *
+     * Not one job carrying several documents. The service already runs jobs to
+     * a printer one at a time, and a job is the unit everything else in this
+     * app is built around - a history row, a progress notification, a Cancel
+     * button, a reprint. A batch collapsed into one job would report a single
+     * outcome for several documents, which on this app's terms is a claim
+     * nobody can make: three labels where the second failed is not "failed"
+     * and it is certainly not "printed".
+     */
     fun print(printer: Printer) = viewModelScope.launch {
-        val document = _selectedDocument.value ?: return@launch
+        val documents = _documents.value
+        if (documents.isEmpty()) return@launch
 
+        // Asked once for the batch, not once per document, or a three-file
+        // share would put up three permission dialogs.
         if (printer.address is PrinterAddress.Usb) {
             val usb = ServiceLocator.usbDiscovery(getApplication())
             if (!usb.hasPermission(printer) && !usb.requestPermission(printer)) {
@@ -483,9 +515,11 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
 
-        PrintForegroundService.start(
-            getApplication(), printer.id, document, _options.value,
-        )
+        documents.forEach { document ->
+            PrintForegroundService.start(
+                getApplication(), printer.id, document, _options.value,
+            )
+        }
     }
 
     /**
@@ -763,7 +797,11 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
      * and its head width and dpi decide what the page is squeezed into.
      */
     fun previewOn(printer: Printer) = viewModelScope.launch {
-        val document = _selectedDocument.value ?: return@launch
+        // The first of the batch. A preview answers "will this printer's one
+        // bit per dot ruin it", which the first document answers as well as
+        // any, and rendering all of them to answer it would cost a raster per
+        // document for one look.
+        val document = _documents.value.firstOrNull() ?: return@launch
         _preview.value = PreviewState(printerName = printer.displayName, loading = true)
 
         val outcome = runCatching { engine.preview(printer, document, _options.value) }
