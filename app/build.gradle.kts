@@ -34,15 +34,15 @@ val versionPatch = 1
 val baseVersionCode = (versionMajor * 10000 + versionMinor * 100 + versionPatch) * 10
 
 /**
- * The highest code ever published: v1.3.0. Before it came 1.2.0 at 102003 and
- * v1.1.0's two flavours at 101001 and 101002.
+ * The highest code ever published: v1.4.0. Before it came 1.3.0 at 103003,
+ * 1.2.0 at 102003, and v1.1.0's two flavours at 101001 and 101002.
  *
  * Recorded because it is the floor every future build has to clear, and
  * nothing else in the tree remembers it. Raise it when a release ships, not
  * when one is cut - the point is what is installed on somebody's device, and
  * a version that never shipped never was.
  */
-val highestPublishedVersionCode = 103003
+val highestPublishedVersionCode = 104003
 
 /**
  * The single build takes the next free slot above the flavours it replaces.
