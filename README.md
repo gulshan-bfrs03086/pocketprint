@@ -404,7 +404,7 @@ stream under `getExternalFilesDir` for byte-level inspection. On a 4x6 label at 
 US Letter page renders to 812 x 1051 dots at 30.02% ink and emits exactly 107,357 bytes of
 TSPL. That makes it quick to tell a rendering bug from a printer that is not marking.
 
-**165 unit tests** cover the IPP codec (request framing, multi-value and resolution decoding,
+**174 unit tests** cover the IPP codec (request framing, multi-value and resolution decoding,
 unknown-tag tolerance), PWG raster round trips including band-boundary equivalence, PWG media
 name parsing, the exact TSPL output, which document types the exported share target will accept,
 the IPP job-state decoding that decides whether a job may be called printed, the per-printer job
@@ -414,7 +414,8 @@ stopped reading, the registry that lets a Cancel button on a history row reach t
 actually doing the work, the settling of jobs a dead process left running without claiming to know
 whether they printed, the budget that keeps a shared batch from turning the single-document size
 limit into no limit at all, the page range that refuses a half-typed range rather than widening it
-to the whole document, what the printer report does and does not disclose, and the versioned store that
+to the whole document, the unit a byte count is reported in so that a label job is not rounded away
+to nothing, what the printer report does and does not disclose, and the versioned store that
 keeps one unreadable record from taking every saved printer with it, and which label text the
 printer's own fonts can carry, the bit order and polarity of the mono raster, and the media
 sensing and darkness commands for both label dialects, the failure messages turned into advice,

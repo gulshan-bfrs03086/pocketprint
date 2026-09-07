@@ -40,8 +40,11 @@
     <!-- Job history -->
     <string name="jobs_title">History</string>
     <string name="jobs_empty">No print jobs yet.</string>
-    <string name="jobs_printed">Printed (%1$d KB)</string>
-    <string name="jobs_sent_unconfirmed">Sent (%1$d KB) - not confirmed</string>
+    <string name="jobs_printed">Printed (%1$s)</string>
+    <string name="jobs_sent_unconfirmed">Sent (%1$s) - not confirmed</string>
+    <string name="jobs_size_bytes">%1$d B</string>
+    <string name="jobs_size_kilobytes">%1$d KB</string>
+    <string name="jobs_size_megabytes">%1$d MB</string>
     <string name="jobs_failed">Failed</string>
     <string name="jobs_reprint">Print again</string>
 
