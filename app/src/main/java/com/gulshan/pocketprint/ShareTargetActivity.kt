@@ -11,6 +11,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.gulshan.pocketprint.model.SourceDocument
 import com.gulshan.pocketprint.render.DocumentTooLarge
 import com.gulshan.pocketprint.render.RenderPipeline
 import com.gulshan.pocketprint.render.Spool
@@ -54,7 +55,7 @@ class ShareTargetActivity : ComponentActivity() {
             Intent.ACTION_SEND -> {
                 val uri = intent.parcelableExtra<Uri>(Intent.EXTRA_STREAM)
                 if (uri != null) {
-                    accept(uri, viewModel)
+                    acceptOne(uri, viewModel)
                     return
                 }
                 intent.getStringExtra(Intent.EXTRA_TEXT)?.let { shared ->
@@ -62,75 +63,145 @@ class ShareTargetActivity : ComponentActivity() {
                 }
             }
 
-            Intent.ACTION_SEND_MULTIPLE -> {
-                // Multi-document printing is not implemented; take the first and
-                // say so rather than silently dropping the rest.
-                val uris = intent.parcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM)
-                if ((uris?.size ?: 0) > 1) {
-                    toast(getString(R.string.share_multiple, uris?.size ?: 0))
-                }
-                uris?.firstOrNull()?.let { accept(it, viewModel) }
-            }
+            Intent.ACTION_SEND_MULTIPLE ->
+                acceptMany(
+                    intent.parcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM).orEmpty(),
+                    viewModel,
+                )
 
-            Intent.ACTION_VIEW -> intent.data?.let { accept(it, viewModel) }
+            Intent.ACTION_VIEW -> intent.data?.let { acceptOne(it, viewModel) }
         }
     }
 
     /**
-     * Takes a shared document if it passes every check, and says why if it does
-     * not.
+     * The outcome of examining one shared URI, so a batch can be summarised
+     * instead of putting up one toast per file.
+     */
+    private sealed interface Examined {
+        data class Ok(val document: SourceDocument) : Examined
+        data class Rejected(val reason: String) : Examined
+    }
+
+    /** One shared document: staged if it passes, and the reason said if not. */
+    private suspend fun acceptOne(uri: Uri, viewModel: PrintersViewModel) {
+        when (val examined = examine(uri, ShareBudget())) {
+            is Examined.Ok -> viewModel.setDocument(examined.document)
+            is Examined.Rejected -> toast(examined.reason)
+        }
+    }
+
+    /**
+     * A shared batch, every document of it checked exactly as a single one is.
+     *
+     * Two bounds, both applied before anything is read. The count, because
+     * nothing stops a caller sending ten thousand URIs and each one costs a
+     * content-resolver query and a copy before anything is known about it. And
+     * a byte budget across the batch, because the single-document limit
+     * multiplied by an unbounded count is not a limit at all.
+     *
+     * Reported as one summary rather than a toast per file: twenty toasts is
+     * not a better error message than one, and the interesting fact about a
+     * batch is how much of it got through.
+     */
+    private suspend fun acceptMany(uris: List<Uri>, viewModel: PrintersViewModel) {
+        if (uris.isEmpty()) return
+        if (uris.size == 1) {
+            acceptOne(uris.first(), viewModel)
+            return
+        }
+
+        val attempted = uris.take(ShareBudget.MAX_DOCUMENTS)
+        val budget = ShareBudget()
+        val accepted = mutableListOf<SourceDocument>()
+        val reasons = mutableListOf<String>()
+
+        for (uri in attempted) {
+            // Stop rather than fail the rest one at a time: once the budget is
+            // gone every remaining document would be reported as too large,
+            // which is true of the batch and not of the document.
+            if (budget.exhausted) break
+            when (val examined = examine(uri, budget)) {
+                is Examined.Ok -> accepted += examined.document
+                is Examined.Rejected -> reasons += examined.reason
+            }
+        }
+
+        if (accepted.isEmpty()) {
+            toast(reasons.firstOrNull() ?: getString(R.string.share_none_printable))
+            return
+        }
+
+        viewModel.setDocuments(accepted)
+
+        val dropped = uris.size - accepted.size
+        toast(
+            if (dropped == 0) {
+                resources.getQuantityString(
+                    R.plurals.share_batch_ready, accepted.size, accepted.size,
+                )
+            } else {
+                getString(R.string.share_batch_partial, accepted.size, uris.size)
+            },
+        )
+    }
+
+    /**
+     * Checks a shared URI and takes a copy if it passes, or says why not.
      *
      * The copy happens now, not at print time, for two reasons. The read grant
      * on a shared URI is scoped to this Activity and is gone by the time the
      * print service opens it; and holding the bytes ourselves means the sending
      * app cannot swap the contents between the check and the print.
      */
-    private suspend fun accept(uri: Uri, viewModel: PrintersViewModel) {
+    private suspend fun examine(uri: Uri, budget: ShareBudget): Examined {
         if (uri.scheme != ContentResolver.SCHEME_CONTENT) {
             // A file:// URI is a caller asking us to read a path of its
             // choosing with our own identity. Sharing apps have not been
             // allowed to send one since API 24 in any case.
-            toast(getString(R.string.share_not_a_file))
-            return
+            return Examined.Rejected(getString(R.string.share_not_a_file))
         }
 
         val described = try {
             Spool.describe(this, uri)
         } catch (failure: Exception) {
-            toast(getString(R.string.share_unreadable, failure.message.orEmpty()))
-            return
+            return Examined.Rejected(
+                getString(R.string.share_unreadable, failure.message.orEmpty()),
+            )
         }
 
         if (!RenderPipeline.canRender(described.mimeType, described.extension)) {
-            toast(
+            return Examined.Rejected(
                 getString(
                     R.string.share_cannot_print, described.displayName, described.mimeType,
                 ),
             )
-            return
         }
 
         val local = try {
             val suffix = described.extension.takeIf { it.isNotBlank() }?.let { ".$it" } ?: ".bin"
-            Spool.copyToCache(this, uri, suffix)
+            Spool.copyToCache(this, uri, suffix, maxBytes = budget.allowance())
         } catch (tooBig: DocumentTooLarge) {
-            toast(
+            // The exception's own limit, not the per-document constant: in a
+            // batch the limit that fired may be what was left of the budget,
+            // and quoting the wrong number sends somebody off to shrink a file
+            // that was never the problem.
+            return Examined.Rejected(
                 getString(
                     R.string.share_too_large,
                     described.displayName,
-                    (Spool.MAX_DOCUMENT_BYTES / (1024 * 1024)).toInt(),
+                    (tooBig.limitBytes / (1024 * 1024)).toInt(),
                 ),
             )
-            return
         } catch (timeout: TimeoutCancellationException) {
-            toast(getString(R.string.share_too_slow, described.displayName))
-            return
+            return Examined.Rejected(getString(R.string.share_too_slow, described.displayName))
         } catch (failure: Exception) {
-            toast(getString(R.string.share_unreadable, failure.message.orEmpty()))
-            return
+            return Examined.Rejected(
+                getString(R.string.share_unreadable, failure.message.orEmpty()),
+            )
         }
 
-        viewModel.setDocument(
+        budget.record(local.length())
+        return Examined.Ok(
             described.copy(
                 uri = Uri.fromFile(local).toString(),
                 sizeBytes = local.length(),

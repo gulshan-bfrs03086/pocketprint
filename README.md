@@ -67,7 +67,8 @@ finding out.
 
 **Print from any app to a Bluetooth printer.** Share a PDF from Drive, hit Print in Chrome, or
 use the system print dialog — the app converts whatever Android hands it into the printer's own
-command language.
+command language. Share several files at once and each becomes its own job, so each gets its own
+history row, progress and Cancel rather than one verdict covering all of them.
 
 **Use the roll you actually have.** Any label size, typed in millimetres — 50×30 and 60×40 are
 the two most common rolls on the market. Gap, black-mark or continuous sensing, because a printer
@@ -396,7 +397,7 @@ stream under `getExternalFilesDir` for byte-level inspection. On a 4x6 label at 
 US Letter page renders to 812 x 1051 dots at 30.02% ink and emits exactly 107,357 bytes of
 TSPL. That makes it quick to tell a rendering bug from a printer that is not marking.
 
-**145 unit tests** cover the IPP codec (request framing, multi-value and resolution decoding,
+**154 unit tests** cover the IPP codec (request framing, multi-value and resolution decoding,
 unknown-tag tolerance), PWG raster round trips including band-boundary equivalence, PWG media
 name parsing, the exact TSPL output, which document types the exported share target will accept,
 the IPP job-state decoding that decides whether a job may be called printed, the per-printer job
@@ -404,7 +405,8 @@ queue that keeps two jobs out of one RFCOMM slot, the rules that decide what the
 dialog is told about a printer, the stall guard that pulls a write out of a printer that has
 stopped reading, the registry that lets a Cancel button on a history row reach the coroutine
 actually doing the work, the settling of jobs a dead process left running without claiming to know
-whether they printed, what the printer report does and does not disclose, and the versioned store that
+whether they printed, the budget that keeps a shared batch from turning the single-document size
+limit into no limit at all, what the printer report does and does not disclose, and the versioned store that
 keeps one unreadable record from taking every saved printer with it, and which label text the
 printer's own fonts can carry, the bit order and polarity of the mono raster, and the media
 sensing and darkness commands for both label dialects, the failure messages turned into advice,
