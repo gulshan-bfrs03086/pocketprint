@@ -315,10 +315,12 @@ export JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home
 ./scripts/check-permissions.sh         # asks for exactly what the docs say
 ./scripts/check-platform-packages.sh   # one non-SDK dependency, and it has a fallback
 ./scripts/check-printservice-threading.sh   # framework handles never leave the main thread
+./scripts/check-dialog-scroll.sh       # dialogs scroll instead of clipping their buttons
 ```
 
-Those four are build gates, not niceties. Each runs in CI against the built APKs — debug and
-release — and each exists because of something that already went wrong once:
+Those five are build gates, not niceties. All five run in CI — two against the built APKs, debug
+and release, and three against the sources — and each exists because of something that already
+went wrong once:
 
 | Gate | What it refuses to let happen again |
 |---|---|
@@ -326,6 +328,7 @@ release — and each exists because of something that already went wrong once:
 | `check-permissions` | The permission set drifting away from the prose that describes it. What the app asks for is checked in as data and diffed against the APK, both ways, so a silent *removal* fails as loudly as an addition. Four descriptions of it went stale simultaneously; one of them reached a release page. |
 | `check-platform-packages` | A second class appearing inside `android.print`, or the fallback for the one that's there quietly becoming unwired. |
 | `check-printservice-threading` | A print-framework handle reaching a worker thread. Every method on `PrintJob`, `generatePrinterId`, `addPrinters` throws `IllegalAccessError` off the main thread — an *Error*, which `runCatching` swallows — and the symptom is a print dialog that searches forever. Three separate violations presented exactly that way. One file may hold those handles and is forbidden from dispatching; every other file may only pass a `PrintJob` straight to it. |
+| `check-dialog-scroll` | A dialog quietly losing its own buttons. Material3's `AlertDialog` does not scroll its content — decompiling 1.3.2 finds no scroll reference anywhere in it — so anything taller than the screen is clipped, and the buttons sit below the text. It needs a short screen to show up: landscape, keyboard up, or a large font scale. Three dialogs already handled it and two did not, including the certificate-changed prompt, which is the one screen that has to work the single time anyone sees it. |
 
 That last gate guards the single place this app reaches outside the public SDK. WebView's
 `PrintDocumentAdapter` is the only thing that paginates HTML properly, and driving it without the

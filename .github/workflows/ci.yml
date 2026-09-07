@@ -120,6 +120,14 @@ jobs:
       - name: Print-framework calls stay on the main thread
         run: ./scripts/check-printservice-threading.sh
 
+      # Material3's AlertDialog does not scroll its own content - decompiling
+      # 1.3.2 shows no scroll references anywhere in it - so a dialog taller
+      # than the screen loses its buttons first. It only shows up on a short
+      # screen: landscape, keyboard up, or a large font scale. This fails if a
+      # dialog stacks content in a Column without a scroll container.
+      - name: Dialog content scrolls rather than clipping its buttons
+        run: ./scripts/check-dialog-scroll.sh
+
       - name: Upload the debug APK
         uses: actions/upload-artifact@v7
         with:

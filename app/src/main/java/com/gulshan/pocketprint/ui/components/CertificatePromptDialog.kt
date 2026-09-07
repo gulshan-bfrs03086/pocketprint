@@ -4,6 +4,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -50,7 +52,10 @@ fun CertificatePromptDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(title)) },
         text = {
-            Column {
+            // The changed-certificate state carries two fingerprints and a
+            // paragraph of prose. AlertDialog does not scroll its own content,
+            // so without this the buttons go off a short screen.
+            Column(Modifier.verticalScroll(rememberScrollState())) {
                 Text(body)
                 if (!prompt.alreadyTrusted) {
                     Spacer(Modifier.height(12.dp))
