@@ -104,6 +104,27 @@ keyPassword=...
 `POCKETPRINT_KEYSTORE_PASSWORD`, `POCKETPRINT_KEY_ALIAS` and
 `POCKETPRINT_KEY_PASSWORD` in the environment.
 
+The two can be mixed, and the useful mixture is the path and the alias in the
+file with the passwords only in the environment, so no password sits on disk.
+Whichever source names a value first wins, and a blank counts as unset — a file
+with the passwords left empty falls through to the environment rather than
+overriding it with nothing.
+
+`keystore.properties` is gitignored, which also means `git clean -xfd` deletes
+it: `-x` removes ignored files, which is exactly what an ignore list contains.
+Keep the keystore itself outside the working tree for that reason. It lives in
+`../signing-keys/` on the machine this was released from.
+
+**A release build with no key fails rather than producing an unsigned APK.**
+An unsigned release is not a weaker artifact, it is one no device will install,
+and it lands next to the signed name with one word between them. CI is exempt,
+because a pull request from a fork gets no secrets and should get none. To ask
+for an unsigned release deliberately — to look at what R8 emitted, say:
+
+```bash
+./gradlew assembleRelease -PallowUnsignedRelease=true
+```
+
 ### Signing on CI
 
 Four repository secrets, the first of which is the keystore itself:

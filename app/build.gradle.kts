@@ -81,9 +81,19 @@ val keystoreProperties = Properties().apply {
     if (file.exists()) file.inputStream().use { load(it) }
 }
 
+/**
+ * The first of the two sources that actually says something.
+ *
+ * Not `properties ?: environment`: elvis falls through on null, and a key
+ * present in keystore.properties with an empty value is "", not null. A file
+ * with the path filled in and the passwords left blank - which is a reasonable
+ * thing to check in to a machine - therefore swallowed the environment
+ * variables entirely, and the release came out unsigned with no explanation.
+ * Blank means absent here, at both sources.
+ */
 fun signingSetting(property: String, environment: String): String? =
-    (keystoreProperties.getProperty(property) ?: System.getenv(environment))
-        ?.takeIf { it.isNotBlank() }
+    listOfNotNull(keystoreProperties.getProperty(property), System.getenv(environment))
+        .firstOrNull { it.isNotBlank() }
 
 val releaseStore = signingSetting("storeFile", "POCKETPRINT_KEYSTORE")
 val releaseStorePassword = signingSetting("storePassword", "POCKETPRINT_KEYSTORE_PASSWORD")
@@ -93,6 +103,27 @@ val releaseKeyPassword = signingSetting("keyPassword", "POCKETPRINT_KEY_PASSWORD
 val canSignRelease = listOf(
     releaseStore, releaseStorePassword, releaseKeyAlias, releaseKeyPassword,
 ).all { it != null }
+
+/**
+ * Whether an unsigned release is an acceptable outcome here.
+ *
+ * It is on CI, and only because of forks: a pull request from one gets no
+ * secrets and should get none, and refusing to build there would turn a
+ * security property into a broken check. The release workflow does have the
+ * secrets and signs.
+ *
+ * It is not on a developer's machine. There, an unsigned release is a build
+ * that quietly did not do the thing that was asked - an APK no device will
+ * install, sitting in the same directory under a name one letter different
+ * from the one that would. Better to say so than to leave it to be discovered
+ * by an install that fails.
+ *
+ * -PallowUnsignedRelease=true is the way out for the case that genuinely
+ * wants one, such as checking what R8 did to the bytecode.
+ */
+val ciBuild = !System.getenv("CI").isNullOrBlank()
+val allowUnsignedRelease =
+    providers.gradleProperty("allowUnsignedRelease").orNull?.toBoolean() == true
 
 /**
  * Bumping this to 37 turns local network access into a runtime permission, and
@@ -219,6 +250,44 @@ android {
             // here rather than removing a line that currently does nothing.
             useLegacyPackaging = true
         }
+    }
+}
+
+/**
+ * Refuses to hand back a release APK that nobody can install.
+ *
+ * On the packaging task rather than at configuration time, because Gradle
+ * configures the whole project before running anything: a require() up top
+ * would fail `assembleDebug` for the absence of a release key it never needed.
+ *
+ * Only plain values cross into the action, so the configuration cache holds.
+ */
+tasks.matching { it.name == "packageRelease" }.configureEach {
+    val signed = canSignRelease
+    val onCi = ciBuild
+    val allowed = allowUnsignedRelease
+    doFirst {
+        if (signed || onCi || allowed) return@doFirst
+        throw GradleException(
+            """
+            The release build has no signing key, so it would produce an APK
+            that no device will install.
+
+            Put the four values in keystore.properties at the repository root:
+
+                storeFile=/absolute/path/to/pocketprint-release.jks
+                storePassword=...
+                keyAlias=pocketprint
+                keyPassword=...
+
+            ...or export POCKETPRINT_KEYSTORE, POCKETPRINT_KEYSTORE_PASSWORD,
+            POCKETPRINT_KEY_ALIAS and POCKETPRINT_KEY_PASSWORD instead, which
+            leaves no password on disk. See docs/RELEASING.md.
+
+            If an unsigned release really is what you want - to look at what R8
+            emitted, say - ask for it: ./gradlew assembleRelease -PallowUnsignedRelease=true
+            """.trimIndent(),
+        )
     }
 }
 
