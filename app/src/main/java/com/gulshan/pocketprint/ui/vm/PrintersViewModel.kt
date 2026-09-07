@@ -26,14 +26,18 @@ import com.gulshan.pocketprint.model.PrinterCapabilities
 import com.gulshan.pocketprint.model.SourceDocument
 import com.gulshan.pocketprint.print.Diagnostics
 import com.gulshan.pocketprint.print.JobListener
+import com.gulshan.pocketprint.print.JobRegistry
 import com.gulshan.pocketprint.print.PrintForegroundService
 import com.gulshan.pocketprint.print.PrinterAutoSetup
 import com.gulshan.pocketprint.print.PrinterReport
 import com.gulshan.pocketprint.print.SetupProgress
 import com.gulshan.pocketprint.print.TestLabelOutcome
 import com.gulshan.pocketprint.render.Spool
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -103,6 +107,15 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _selectedDocument = MutableStateFlow<SourceDocument?>(null)
     val selectedDocument: StateFlow<SourceDocument?> = _selectedDocument.asStateFlow()
+
+    /**
+     * Label jobs still running, so [cancelJob] can find one.
+     *
+     * These never reach [PrintForegroundService] - an in-app label is
+     * printed straight from here - so the service's own registry cannot see
+     * them and its cancel request would arrive to find nothing.
+     */
+    private val runningLabelJobs = JobRegistry()
 
     private val _labelStatus = MutableStateFlow<String?>(null)
     val labelStatus: StateFlow<String?> = _labelStatus.asStateFlow()
@@ -479,64 +492,122 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
      * Sends prebuilt printer commands and reports the real outcome. The status
      * is published only after the transport has finished, so a printer that is
      * switched off no longer shows as a success.
+     *
+     * The history row goes in before the first byte moves, not once the job is
+     * over. Opening the connection is itself something that can hang - a
+     * Bluetooth printer that is switched off, most obviously - and a row that
+     * appears only on completion leaves exactly the job that most needs
+     * stopping with nothing on screen to stop. Same reasoning, and the same
+     * shape, as [PrintForegroundService] uses for a document.
      */
-    fun printRawLabel(printer: Printer, bytes: ByteArray, name: String) = viewModelScope.launch {
+    fun printRawLabel(printer: Printer, bytes: ByteArray, name: String): Job {
         val app = getApplication<android.app.Application>()
-        _labelStatus.value =
-            app.getString(R.string.label_sending, bytes.size, printer.displayName)
         val jobId = java.util.UUID.randomUUID().toString()
         val startedAt = System.currentTimeMillis()
 
-        val result = engine.printRaw(
-            printer, bytes, name, _options.value,
-            JobListener(
-                onStatus = { status ->
-                    _labelStatus.value = app.getString(
-                        R.string.notification_printer_status, printer.displayName, status,
-                    )
-                },
-            ),
+        fun record(
+            state: JobState,
+            finishedAt: Long? = null,
+            bytesSent: Long = 0,
+            error: String? = null,
+            note: String? = null,
+        ) = PrintJobRecord(
+            id = jobId,
+            printerId = printer.id,
+            printerName = printer.displayName,
+            documentName = name,
+            state = state,
+            createdAtEpochMs = startedAt,
+            finishedAtEpochMs = finishedAt,
+            bytesSent = bytesSent,
+            error = error,
+            note = note,
         )
 
-        _labelStatus.value = when (result) {
-            is PrintResult.Completed -> app.getString(
-                R.string.label_printed, printer.displayName, result.bytesSent.toInt(),
+        // LAZY so the job is in the registry before its body can run at all.
+        // viewModelScope dispatches on Main.immediate, so an eager launch from
+        // the main thread executes straight through to the first suspension
+        // point - and a cancel arriving in that window would find nothing.
+        val job = viewModelScope.launch(start = CoroutineStart.LAZY) {
+            _labelStatus.value =
+                app.getString(R.string.label_sending, bytes.size, printer.displayName)
+
+            jobRepo.upsert(record(JobState.SENDING))
+
+            val result = try {
+                engine.printRaw(
+                    printer, bytes, name, _options.value,
+                    JobListener(
+                        onStatus = { status ->
+                            _labelStatus.value = app.getString(
+                                R.string.notification_printer_status, printer.displayName, status,
+                            )
+                        },
+                    ),
+                )
+            } catch (cancel: CancellationException) {
+                // Written outside the cancelled scope, or the upsert would
+                // itself be cancelled at its first suspension point and the
+                // row would sit at SENDING for good, offering a Cancel button
+                // for a job that had already stopped.
+                withContext(NonCancellable) {
+                    jobRepo.upsert(
+                        record(
+                            JobState.CANCELLED,
+                            finishedAt = System.currentTimeMillis(),
+                            error = app.getString(R.string.job_cancelled),
+                        ),
+                    )
+                    _labelStatus.value = app.getString(R.string.job_cancelled)
+                }
+                throw cancel
+            }
+
+            _labelStatus.value = when (result) {
+                is PrintResult.Completed -> app.getString(
+                    R.string.label_printed, printer.displayName, result.bytesSent.toInt(),
+                )
+                is PrintResult.Sent -> app.getString(
+                    R.string.label_sent, result.bytesSent.toInt(), result.reason,
+                )
+                is PrintResult.Failure -> app.getString(R.string.label_failed, result.message)
+            }
+
+            val finishedAt = System.currentTimeMillis()
+            jobRepo.upsert(
+                when (result) {
+                    is PrintResult.Completed ->
+                        record(JobState.COMPLETED, finishedAt, bytesSent = result.bytesSent)
+                    is PrintResult.Sent -> record(
+                        JobState.SENT, finishedAt,
+                        bytesSent = result.bytesSent, note = result.reason,
+                    )
+                    is PrintResult.Failure ->
+                        record(JobState.FAILED, finishedAt, error = result.message)
+                },
             )
-            is PrintResult.Sent -> app.getString(
-                R.string.label_sent, result.bytesSent.toInt(), result.reason,
-            )
-            is PrintResult.Failure -> app.getString(R.string.label_failed, result.message)
         }
 
-        jobRepo.upsert(
-            PrintJobRecord(
-                id = jobId,
-                printerId = printer.id,
-                printerName = printer.displayName,
-                documentName = name,
-                state = when (result) {
-                    is PrintResult.Completed -> JobState.COMPLETED
-                    is PrintResult.Sent -> JobState.SENT
-                    is PrintResult.Failure -> JobState.FAILED
-                },
-                createdAtEpochMs = startedAt,
-                finishedAtEpochMs = System.currentTimeMillis(),
-                bytesSent = (result as? PrintResult.Delivered)?.bytesSent ?: 0L,
-                error = (result as? PrintResult.Failure)?.message,
-                note = (result as? PrintResult.Sent)?.reason,
-            ),
-        )
+        runningLabelJobs.register(jobId, job)
+        job.start()
+        return job
     }
 
     /**
-     * Asks the print service to stop a job that is still running.
+     * Asks for a job that is still running to be stopped.
      *
-     * Only the service's own jobs can be stopped this way, which is every job
-     * that can still be seen running: an in-app label writes its history row
-     * only once it is over, so a label job is never on screen while it could
-     * still be cancelled.
+     * Two places run jobs. A document goes through [PrintForegroundService] and
+     * is stopped by asking the service; an in-app label runs here, on
+     * viewModelScope, where the service cannot see it. So this looks locally
+     * first and only then asks the service.
+     *
+     * Either way, cancelling the coroutine is half of it: a write blocked in a
+     * syscall ignores cancellation, and it is the stall guard around the
+     * transport - reached by that same cancellation - that closes the socket
+     * and lets the thread out.
      */
     fun cancelJob(job: PrintJobRecord) {
+        if (runningLabelJobs.cancel(job.id)) return
         PrintForegroundService.requestCancel(getApplication(), job.id)
     }
 
