@@ -1,5 +1,6 @@
 package com.gulshan.pocketprint.printservice
 
+import android.content.pm.PackageManager
 import android.os.ParcelFileDescriptor
 import android.print.PrintAttributes
 import android.print.PrinterCapabilitiesInfo
@@ -68,7 +69,7 @@ class PocketPrintService : PrintService() {
      */
     override fun onPrintJobQueued(printJob: PrintJob) {
         val queued = PrintFramework.take(this, printJob) ?: return
-        val options = optionsFrom(queued.info.attributes, queued.info.copies)
+        val options = optionsFrom(queued.info.attributes, queued.info.copies, packageManager)
 
         val job = scope.launch {
             try {
@@ -181,38 +182,51 @@ class PocketPrintService : PrintService() {
             }
         }
 
-    /** Translates the framework's PrintAttributes into our own options. */
-    private fun optionsFrom(attributes: PrintAttributes?, copies: Int): PrintOptions {
-        val media = attributes?.mediaSize
-        val size = media?.let {
-            MediaSize(
-                id = it.id,
-                label = it.getLabel(packageManager) ?: it.id,
-                // PrintAttributes measures in thousandths of an inch.
-                widthMicrons = Math.round(it.widthMils * 25.4f),
-                heightMicrons = Math.round(it.heightMils * 25.4f),
-            )
-        } ?: MediaSize.A4
+}
 
-        val landscape = media?.isPortrait == false
-
-        return PrintOptions(
-            copies = copies.coerceAtLeast(1),
-            mediaSize = size,
-            orientation = if (landscape) Orientation.LANDSCAPE else Orientation.PORTRAIT,
-            colorMode = if (attributes?.colorMode == PrintAttributes.COLOR_MODE_COLOR) {
-                ColorMode.COLOR
-            } else {
-                ColorMode.MONOCHROME
-            },
-            duplex = when (attributes?.duplexMode) {
-                PrintAttributes.DUPLEX_MODE_LONG_EDGE -> DuplexMode.LONG_EDGE
-                PrintAttributes.DUPLEX_MODE_SHORT_EDGE -> DuplexMode.SHORT_EDGE
-                else -> DuplexMode.SIMPLEX
-            },
-            dpi = attributes?.resolution?.horizontalDpi?.takeIf { it > 0 } ?: 300,
+/**
+ * Translates the framework's PrintAttributes into our own options.
+ *
+ * Top level and internal, like [buildPrinterInfo] below it, so it can be
+ * exercised on a device without a PrintService: PrintAttributes is publicly
+ * constructible, a PrintService is not. This is the only part of the queued-job
+ * path a test can reach - a real PrintJob comes from the framework and cannot
+ * be made - so it is the part worth pinning.
+ */
+internal fun optionsFrom(
+    attributes: PrintAttributes?,
+    copies: Int,
+    packageManager: PackageManager,
+): PrintOptions {
+    val media = attributes?.mediaSize
+    val size = media?.let {
+        MediaSize(
+            id = it.id,
+            label = it.getLabel(packageManager) ?: it.id,
+            // PrintAttributes measures in thousandths of an inch.
+            widthMicrons = Math.round(it.widthMils * 25.4f),
+            heightMicrons = Math.round(it.heightMils * 25.4f),
         )
-    }
+    } ?: MediaSize.A4
+
+    val landscape = media?.isPortrait == false
+
+    return PrintOptions(
+        copies = copies.coerceAtLeast(1),
+        mediaSize = size,
+        orientation = if (landscape) Orientation.LANDSCAPE else Orientation.PORTRAIT,
+        colorMode = if (attributes?.colorMode == PrintAttributes.COLOR_MODE_COLOR) {
+            ColorMode.COLOR
+        } else {
+            ColorMode.MONOCHROME
+        },
+        duplex = when (attributes?.duplexMode) {
+            PrintAttributes.DUPLEX_MODE_LONG_EDGE -> DuplexMode.LONG_EDGE
+            PrintAttributes.DUPLEX_MODE_SHORT_EDGE -> DuplexMode.SHORT_EDGE
+            else -> DuplexMode.SIMPLEX
+        },
+        dpi = attributes?.resolution?.horizontalDpi?.takeIf { it > 0 } ?: 300,
+    )
 }
 
 /** Maps our saved printers into PrinterInfo objects the framework can show. */

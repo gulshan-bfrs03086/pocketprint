@@ -413,7 +413,17 @@ printer's own fonts can carry, the bit order and polarity of the mono raster, an
 sensing and darkness commands for both label dialects, the failure messages turned into advice,
 the two permission readings where "unknown" must not be reported as "no", the rule that decides when a socket is
 bound to the local network, and the end-of-stream case that Android 17 turns from an exception
-into a silent -1. CI builds and tests debug and release on every push.
+into a silent -1.
+
+**24 instrumented tests** run on a real Android device, for the three things a JVM cannot stand in
+for. `PdfRenderer` and `Bitmap`, where a page rendered in horizontal bands is compared against the
+same page rendered whole — a wrong band offset shifts content a few rows at a time and produces a
+page that looks almost right, with seams. A real TCP stack, where the raw-socket transport's
+open/write/finish/close lifecycle is driven against a loopback server. And the framework's own
+`PrintAttributes`, where what the system print dialog decides becomes what this app prints — mils
+to microns, a rotated media size to an orientation, a duplex mode to a `sides` value.
+
+Both suites run in CI on every push, the on-device ones on an emulator alongside the rest.
 
 **What isn't proven.** Coverage beyond that one printer is thin — that's the real gap, and no
 amount of code review closes it. Office documents need an external converter (a Gotenberg
