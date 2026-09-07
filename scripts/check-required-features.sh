@@ -21,8 +21,13 @@ set -euo pipefail
 if [[ $# -gt 0 ]]; then
   APKS=("$@")
 else
+  # androidTest is pruned deliberately. That APK is the on-device test harness:
+  # it is never published, and instrumentation gives it a manifest of its own -
+  # no app permissions at all, plus a faketouch feature the runner adds. Judging
+  # it against what ships would fail on a difference that is supposed to exist.
   # shellcheck disable=SC2207
-  APKS=($(find app/build/outputs/apk -name "*.apk" 2>/dev/null | sort))
+  APKS=($(find app/build/outputs/apk -path "*/androidTest/*" -prune -o \
+    -name "*.apk" -print 2>/dev/null | sort))
 fi
 
 if [[ ${#APKS[@]} -eq 0 ]]; then
