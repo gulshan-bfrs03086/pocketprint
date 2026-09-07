@@ -269,6 +269,7 @@
     <string name="notification_stopped_title">Print job stopped</string>
     <string name="notification_stopped_body">Android stopped this job because it ran too long.</string>
     <string name="job_cancelled">Cancelled before the job finished</string>
+    <string name="jobs_interrupted">Interrupted — the app stopped while this was sending, so whether it printed is not known</string>
 
     <!-- Failures handed back to another app\'s print dialog -->
     <string name="system_no_printer_selected">No printer was selected</string>

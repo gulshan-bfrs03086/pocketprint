@@ -8,6 +8,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.gulshan.pocketprint.model.ColorMode
+import com.gulshan.pocketprint.model.JobState
 import com.gulshan.pocketprint.model.MediaSize
 import com.gulshan.pocketprint.model.PrintJobRecord
 import com.gulshan.pocketprint.model.PrintOptions
@@ -87,6 +88,40 @@ class PrinterRepository(private val context: Context) {
     }
 }
 
+/**
+ * Moves jobs that were still running when the process ended to
+ * [JobState.INTERRUPTED].
+ *
+ * A job only exists while the process that is running it does. Both writers -
+ * the foreground service and the in-app label path - live in this process;
+ * the manifest declares no android:process anywhere, so there is no component
+ * that can still be printing after the process is gone. A non-terminal row
+ * left in storage is therefore a job that stopped when the app did, and the
+ * row is the only thing that did not notice.
+ *
+ * [startedBefore] is what keeps this from eating a live job. Rows created at
+ * or after the moment this process started belong to this process and are its
+ * own business; only what predates it is stale. Without that cutoff a job that
+ * managed to write its SENDING row before this ran would be marked interrupted
+ * while it was still printing.
+ *
+ * The new state deliberately claims nothing about the outcome. Bytes may well
+ * have reached the printer, and on a receipt or a shipping label the
+ * difference between "it did not print" and "nobody knows" is the difference
+ * between a duplicate and a reprint that was needed.
+ */
+internal fun interruptStaleJobs(
+    records: List<PrintJobRecord>,
+    startedBefore: Long,
+    now: Long,
+): List<PrintJobRecord> = records.map { record ->
+    if (record.state.terminal || record.createdAtEpochMs >= startedBefore) {
+        record
+    } else {
+        record.copy(state = JobState.INTERRUPTED, finishedAtEpochMs = now)
+    }
+}
+
 /** A bounded history of print jobs. */
 class JobRepository(private val context: Context) {
 
@@ -100,6 +135,14 @@ class JobRepository(private val context: Context) {
          * work, which is exactly the kind of change that used to be dangerous:
          * a record written here and then read by an older build has an enum
          * constant that build has never heard of.
+         *
+         * JobState.INTERRUPTED was added the same way and needed no bump. The
+         * version stamp exists so old records can be migrated forward, and
+         * these need nothing - they are readable exactly as written. The
+         * hazard runs the other way, new record into old build, and
+         * VersionedCodec already answers that by decoding record by record:
+         * a downgraded build drops the one row it cannot read and reports it,
+         * instead of losing the history.
          */
         private const val VERSION = 1
     }
@@ -121,6 +164,33 @@ class JobRepository(private val context: Context) {
                 .take(limit)
             prefs[key] = codec.encode(merged)
         }
+    }
+
+    /**
+     * Settles rows left running by a process that is gone. See
+     * [interruptStaleJobs] for what counts as stale and why.
+     *
+     * Returns how many rows were changed, which is also the reason nothing is
+     * written when that is zero: a payload this build cannot read decodes to an
+     * empty list, and writing that back would replace every job the user has
+     * with nothing. Not writing is what keeps an unreadable history intact
+     * until a build that understands it comes along.
+     */
+    suspend fun interruptStale(
+        startedBefore: Long,
+        now: Long = System.currentTimeMillis(),
+    ): Int {
+        var changed = 0
+        context.dataStore.edit { prefs ->
+            val stored = codec.decode(prefs[key])
+            StorageHealth.report("print jobs", stored)
+            val settled = interruptStaleJobs(stored.items, startedBefore, now)
+            changed = stored.items.zip(settled).count { (before, after) -> before != after }
+            if (changed == 0) return@edit
+            prefs.quarantine(key, stored.unreadable)
+            prefs[key] = codec.encode(settled)
+        }
+        return changed
     }
 
     suspend fun clear() {
