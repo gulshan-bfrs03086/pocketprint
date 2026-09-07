@@ -268,13 +268,20 @@ adb install -r pocketprint.apk
 
 | Installed | What happens |
 |---|---|
-| **v1.1.0**, either `-modern` or `-legacy` | Installs straight over it. Same signing key, same `com.gulshan.pocketprint`, higher version code — your printers are kept. |
+| **v1.1.0**–**v1.3.0**, including either `-modern` or `-legacy` | Installs straight over it. Same signing key, same `com.gulshan.pocketprint`, higher version code — your printers are kept. |
 | **v1.0.x** | Installs **alongside**, leaving two apps. Those were debug builds under `com.gulshan.pocketprint.debug`, which Android treats as an unrelated app. Uninstall the old one; its printers do not carry over. |
 | nothing | Nothing special. |
 
+That first row is measured, not assumed. Both paths were run on a Newland NLS-MT90 rugged terminal
+on Android 11 — v1.1.0-legacy straight to v1.3.0, and the two-step v1.1.0 → v1.2.0 → v1.3.0 —
+with saved printers of both kinds present. Everything came through, and `firstInstallTime` stayed
+fixed across each step, which is what distinguishes an upgrade from a reinstall.
+
 v1.2.0 is the first release to replace the separate `modern` and `legacy` APKs. They differed by
-a single install-time permission that Android 12 ignores anyway, which was not worth two of every
-file and sentence describing them.
+one install-time permission, `BLUETOOTH`, which Android caps at API 30 and ignores above it. That
+was not worth two of every file and sentence describing them — but it is live on an Android 11
+device, so the single build still declares it, and `check-permissions` is what stops it being
+dropped by accident.
 
 ### Checking what you downloaded
 

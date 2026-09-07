@@ -15,7 +15,7 @@ plugins {
  * See docs/RELEASING.md.
  */
 val versionMajor = 1
-val versionMinor = 3
+val versionMinor = 4
 val versionPatch = 0
 
 /**
@@ -34,12 +34,15 @@ val versionPatch = 0
 val baseVersionCode = (versionMajor * 10000 + versionMinor * 100 + versionPatch) * 10
 
 /**
- * The highest code ever published: v1.1.0 modern. Legacy was 101001.
+ * The highest code ever published: v1.3.0. Before it came 1.2.0 at 102003 and
+ * v1.1.0's two flavours at 101001 and 101002.
  *
  * Recorded because it is the floor every future build has to clear, and
- * nothing else in the tree remembers it.
+ * nothing else in the tree remembers it. Raise it when a release ships, not
+ * when one is cut - the point is what is installed on somebody's device, and
+ * a version that never shipped never was.
  */
-val highestPublishedVersionCode = 101002
+val highestPublishedVersionCode = 103003
 
 /**
  * The single build takes the next free slot above the flavours it replaces.
