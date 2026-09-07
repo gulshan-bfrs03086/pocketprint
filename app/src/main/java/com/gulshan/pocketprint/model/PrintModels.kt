@@ -35,7 +35,6 @@ data class PrintOptions(
     val pageFrom: Int? = null,
     val pageTo: Int? = null,
     val fitToPage: Boolean = true,
-    /** Thermal printers: darkness/heat. 0-15 for TSPL, 0-30 for ZPL. */
     /** Error-diffusion dithering when reducing to 1 bit. Off gives hard threshold. */
     val dither: Boolean = true,
 ) {
@@ -51,25 +50,23 @@ data class PrintOptions(
 /**
  * How far a job got.
  *
- * SENT and COMPLETED are deliberately not the same thing, and the distinction
- * is the whole point. A write to a Bluetooth socket returns when the bytes are
- * in the OS buffer; the printer may be out of paper, loaded with the wrong
- * stock, or off. Field testing produced six jobs in a row recorded as COMPLETED
- * with no error while nothing came out of the printer, which sent the whole
- * investigation into the command language, which was never at fault.
+ * Three of these are careful about how little they claim, and that care is the
+ * point of the type.
  *
- * SENT means the bytes left the device and nothing more. COMPLETED means the
- * printer said so.
- */
-/**
- * Where a job got to.
+ * [SENT] and [COMPLETED] are deliberately not the same thing. A write to a
+ * Bluetooth socket returns when the bytes are in the OS buffer; the printer may
+ * be out of paper, loaded with the wrong stock, or off. Field testing produced
+ * six jobs in a row recorded as COMPLETED with no error while nothing came out
+ * of the printer, which sent the whole investigation into the command language,
+ * which was never at fault. SENT means the bytes left the device and nothing
+ * more. COMPLETED means the printer said so.
  *
- * [INTERRUPTED] is the one that says the least, on purpose. It means the app
- * stopped - killed, swiped away, crashed - while the job was still in flight,
- * so nobody can say whether the printer printed it. It is not [FAILED], which
- * claims the job did not happen, and not [CANCELLED], which claims somebody
- * asked for it to stop. Both of those would be guesses, and on a shipping
- * label a wrong guess costs either a duplicate or a missing parcel.
+ * [INTERRUPTED] says least of all. The app stopped - killed, swiped away,
+ * crashed - while the job was still in flight, so nobody can say whether the
+ * printer printed it. It is not [FAILED], which claims the job did not happen,
+ * and not [CANCELLED], which claims somebody asked for it to stop. Both would
+ * be guesses, and on a shipping label a wrong guess costs either a duplicate
+ * parcel or a missing one.
  */
 enum class JobState {
     QUEUED,

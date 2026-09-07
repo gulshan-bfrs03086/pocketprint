@@ -65,7 +65,11 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.gulshan.pocketprint.model.ColorMode
 import com.gulshan.pocketprint.model.ConnectionKind
+import com.gulshan.pocketprint.model.DuplexMode
 import com.gulshan.pocketprint.model.MediaSize
+import com.gulshan.pocketprint.model.Orientation
+import com.gulshan.pocketprint.model.PageRangeInput
+import com.gulshan.pocketprint.model.withPageRange
 import com.gulshan.pocketprint.R
 import com.gulshan.pocketprint.discovery.CompanionPairing
 import com.gulshan.pocketprint.model.Printer
@@ -95,6 +99,14 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
     val discovery by viewModel.discovery.collectAsStateWithLifecycle()
     val saved by viewModel.savedPrinters.collectAsStateWithLifecycle()
     val documents by viewModel.documents.collectAsStateWithLifecycle()
+
+    // The boxes are kept as text, not as numbers, because half-typed text is a
+    // state the user is allowed to be in and Int? cannot hold the difference
+    // between "empty" and "being typed". PageRangeInput is what decides what
+    // any given pair of them means.
+    var pageFromText by rememberSaveable { mutableStateOf("") }
+    var pageToText by rememberSaveable { mutableStateOf("") }
+    val pageRange = PageRangeInput.parse(pageFromText, pageToText)
     // A share can stage several. The card names the first and counts the
     // rest; everything that only needs to know whether there is anything to
     // print asks the list.
@@ -360,6 +372,111 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
                 onSelect = { dpi -> viewModel.updateOptions { it.copy(dpi = dpi) } },
                 modifier = Modifier.padding(top = 8.dp),
             )
+
+            ChipRow(
+                items = listOf(Orientation.PORTRAIT, Orientation.LANDSCAPE),
+                selected = options.orientation,
+                label = {
+                    context.getString(
+                        if (it == Orientation.LANDSCAPE) {
+                            R.string.printers_landscape
+                        } else {
+                            R.string.printers_portrait
+                        },
+                    )
+                },
+                onSelect = { o -> viewModel.updateOptions { it.copy(orientation = o) } },
+                modifier = Modifier.padding(top = 8.dp),
+            )
+
+            // Shown only if something could actually do it. A thermal printer
+            // has one side, and a control that can never take effect is worse
+            // than no control: it reads as a promise.
+            if (saved.any { it.capabilities.supportsDuplex }) {
+                SectionHeader(stringResource(R.string.printers_sides))
+                ChipRow(
+                    items = listOf(
+                        DuplexMode.SIMPLEX, DuplexMode.LONG_EDGE, DuplexMode.SHORT_EDGE,
+                    ),
+                    selected = options.duplex,
+                    label = {
+                        context.getString(
+                            when (it) {
+                                DuplexMode.SIMPLEX -> R.string.printers_simplex
+                                DuplexMode.LONG_EDGE -> R.string.printers_long_edge
+                                DuplexMode.SHORT_EDGE -> R.string.printers_short_edge
+                            },
+                        )
+                    },
+                    onSelect = { d -> viewModel.updateOptions { it.copy(duplex = d) } },
+                )
+            }
+        }
+
+        item {
+            SectionHeader(stringResource(R.string.printers_pages))
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                // A valid pair is pushed into the options as it is typed; an
+                // invalid one is deliberately not, and printing is blocked
+                // below instead. Writing it through anyway would land on
+                // pageRange == null, which every renderer reads as every page -
+                // the one outcome the user certainly did not ask for.
+                fun push(from: String, to: String) {
+                    val parsed = PageRangeInput.parse(from, to)
+                    viewModel.updateOptions { current ->
+                        current.withPageRange(parsed) ?: current
+                    }
+                }
+                OutlinedTextField(
+                    value = pageFromText,
+                    onValueChange = {
+                        pageFromText = it.filter(Char::isDigit).take(6)
+                        push(pageFromText, pageToText)
+                    },
+                    label = { Text(stringResource(R.string.printers_page_from)) },
+                    isError = pageRange is PageRangeInput.Invalid,
+                    singleLine = true,
+                    modifier = Modifier.weight(1f),
+                )
+                OutlinedTextField(
+                    value = pageToText,
+                    onValueChange = {
+                        pageToText = it.filter(Char::isDigit).take(6)
+                        push(pageFromText, pageToText)
+                    },
+                    label = { Text(stringResource(R.string.printers_page_to)) },
+                    isError = pageRange is PageRangeInput.Invalid,
+                    singleLine = true,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            Text(
+                when (pageRange) {
+                    is PageRangeInput.Invalid -> stringResource(
+                        when (pageRange.problem) {
+                            PageRangeInput.Problem.INCOMPLETE ->
+                                R.string.printers_pages_incomplete
+                            PageRangeInput.Problem.NOT_A_NUMBER ->
+                                R.string.printers_pages_not_a_number
+                            PageRangeInput.Problem.BELOW_FIRST_PAGE ->
+                                R.string.printers_pages_below_first
+                            PageRangeInput.Problem.REVERSED ->
+                                R.string.printers_pages_reversed
+                        },
+                    )
+                    else -> stringResource(R.string.printers_pages_all)
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = if (pageRange is PageRangeInput.Invalid) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                modifier = Modifier.padding(top = 4.dp),
+            )
         }
 
         item {
@@ -395,7 +512,8 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
                         // away from that, not buried.
                         IconButton(
                             onClick = { viewModel.previewOn(printer) },
-                            enabled = documents.isNotEmpty(),
+                            enabled = documents.isNotEmpty() &&
+                                pageRange !is PageRangeInput.Invalid,
                         ) {
                             Icon(Icons.Filled.Visibility, contentDescription = stringResource(R.string.printers_preview))
                         }
@@ -407,7 +525,10 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
                         }
                     }
                 },
-                enabled = documents.isNotEmpty(),
+                // A half-typed range must not print. Left enabled it would
+                // fall through to pageRange == null and print the whole
+                // document, which is the failure this control exists to avoid.
+                enabled = documents.isNotEmpty() && pageRange !is PageRangeInput.Invalid,
                 onClick = {
                     // Asked for here because this is when a job is about to run
                     // in the background, and refused or not the job still goes:
@@ -426,6 +547,8 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
                 subtitleOverride = when {
                     documents.isEmpty() ->
                         stringResource(R.string.printers_choose_document_first)
+                    pageRange is PageRangeInput.Invalid ->
+                        stringResource(R.string.printers_fix_pages)
                     // Says how many, because tapping a row on a thermal printer
                     // spends that many labels.
                     documents.size > 1 -> pluralStringResource(
