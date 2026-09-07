@@ -18,6 +18,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Bluetooth
@@ -56,6 +58,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -81,6 +84,7 @@ import com.gulshan.pocketprint.ui.components.PrintPreviewDialog
 import com.gulshan.pocketprint.ui.components.PrinterSettingsDialog
 import com.gulshan.pocketprint.ui.components.SectionHeader
 import com.gulshan.pocketprint.ui.components.WarningBanner
+import com.gulshan.pocketprint.ui.theme.PocketPrintTheme
 import com.gulshan.pocketprint.ui.vm.PrintersViewModel
 import com.gulshan.pocketprint.ui.components.CertificatePromptDialog
 
@@ -667,7 +671,13 @@ private fun AddPrinterDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.add_printer_title)) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            // Three fields and a chip row, and the keyboard is up the whole time
+            // this dialog is open. AlertDialog does not scroll its own content,
+            // so without this the Add button goes off the bottom.
+            Column(
+                Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
@@ -715,4 +725,15 @@ private fun AddPrinterDialog(
             TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) }
         },
     )
+}
+
+/**
+ * The add-printer form on a screen the size a phone actually has once the
+ * keyboard is up. This dialog is only ever used with the keyboard open, so the
+ * full-height default preview is the one case that never happens.
+ */
+@Preview(name = "Add printer - keyboard height", showBackground = true, widthDp = 360, heightDp = 380)
+@Composable
+private fun AddPrinterDialogPreview() = PocketPrintTheme {
+    AddPrinterDialog(onDismiss = {}, onAdd = { _, _, _, _ -> })
 }
