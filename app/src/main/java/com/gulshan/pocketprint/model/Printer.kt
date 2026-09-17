@@ -150,7 +150,54 @@ data class MediaSize(
 
         /** The metric near-equivalent, which is a genuinely different stock. */
         val LABEL_100X150 = MediaSize("om_label_100x150mm", "Label 100 x 150 mm", mm(100.0), mm(150.0))
+
+        /**
+         * The rest of the 4-inch family, which is one roll width cut to
+         * different lengths. A printer with a 4-inch head takes all of them,
+         * so the width is a property of the machine and the length is the only
+         * thing anybody chooses - which is why they are listed together, in
+         * descending length, rather than scattered through the list by area.
+         */
+        val LABEL_100X100 = MediaSize("om_label-100x100_100x100mm", "Label 100 x 100 mm", mm(100.0), mm(100.0))
+        val LABEL_100X75 = MediaSize("om_label-100x75_100x75mm", "Label 100 x 75 mm", mm(100.0), mm(75.0))
         val LABEL_100X50 = MediaSize("om_label-100x50_100x50mm", "Label 100 x 50 mm", mm(100.0), mm(50.0))
+        val LABEL_100X25 = MediaSize("om_label-100x25_100x25mm", "Label 100 x 25 mm", mm(100.0), mm(25.0))
+
+        /**
+         * The small stock: barcode, price, shelf-edge and asset labels.
+         *
+         * These are the rolls the five original sizes missed entirely, and
+         * missing them made the app useless to whoever owned one no matter
+         * what else worked - 50 x 30 and 60 x 40 were already named in
+         * `custom` below as the two commonest on the market, which was a note
+         * about a gap rather than a reason to leave it open.
+         *
+         * Small is the whole point of them. At 203 dpi, 50 x 25 mm is 400 x
+         * 200 dots and 25 x 25 mm is 200 x 200, so a barcode drawn by the
+         * printer's firmware rather than rasterised on the phone is the
+         * difference between one that scans and one that does not - which is
+         * the path the label screen already takes.
+         */
+        val LABEL_75X50 = MediaSize("om_label-75x50_75x50mm", "Label 75 x 50 mm", mm(75.0), mm(50.0))
+        val LABEL_60X40 = MediaSize("om_label-60x40_60x40mm", "Label 60 x 40 mm", mm(60.0), mm(40.0))
+        val LABEL_50X40 = MediaSize("om_label-50x40_50x40mm", "Label 50 x 40 mm", mm(50.0), mm(40.0))
+        val LABEL_50X30 = MediaSize("om_label-50x30_50x30mm", "Label 50 x 30 mm", mm(50.0), mm(30.0))
+        val LABEL_50X25 = MediaSize("om_label-50x25_50x25mm", "Label 50 x 25 mm", mm(50.0), mm(25.0))
+
+        /**
+         * 2 x 1 INCHES - 50.8 x 25.4 mm, not 50 x 25, and sold alongside it.
+         *
+         * The same trap as 4 x 6 and one harder to spot, because 0.8 mm across
+         * and 0.4 mm down looks like rounding. It is not: on a gap-sensing
+         * printer the difference accumulates against the sensor exactly the
+         * way 2.4 mm did on the shipping label, and the stock is smaller, so
+         * proportionally it is the same error. Both entries exist because both
+         * rolls exist.
+         */
+        val LABEL_2X1 = MediaSize("om_label-2x1_50.8x25.4mm", "2 x 1 in label", inch(2.0), inch(1.0))
+
+        val LABEL_38X25 = MediaSize("om_label-38x25_38x25mm", "Label 38 x 25 mm", mm(38.0), mm(25.0))
+        val LABEL_25X25 = MediaSize("om_label-25x25_25x25mm", "Label 25 x 25 mm", mm(25.0), mm(25.0))
 
         /**
          * Receipt stock is a continuous roll, so only the width is a property
@@ -164,7 +211,25 @@ data class MediaSize(
         val RECEIPT_58 = MediaSize("om_receipt-58_58x297mm", "Receipt 58 mm", mm(58.0), mm(297.0))
 
         val PAPER = listOf(A4, LETTER, LEGAL, A5, PHOTO_4X6)
-        val LABELS = listOf(LABEL_4X6, LABEL_100X150, LABEL_100X50, RECEIPT_80, RECEIPT_58)
+
+        /**
+         * Die-cut label rolls, ordered the way somebody looks for their own
+         * stock: the two shipping sizes first because they are what most
+         * printers are loaded with, then the 4-inch family by length, then the
+         * small stock by size. A picker is read in order, so the order is a
+         * feature rather than an accident of when each entry was added.
+         */
+        val LABEL_ROLLS = listOf(
+            LABEL_4X6, LABEL_100X150,
+            LABEL_100X100, LABEL_100X75, LABEL_100X50, LABEL_100X25,
+            LABEL_75X50, LABEL_60X40, LABEL_50X40, LABEL_50X30, LABEL_50X25, LABEL_2X1,
+            LABEL_38X25, LABEL_25X25,
+        )
+
+        /** Continuous rolls, where only the width is a property of the paper. */
+        val RECEIPT_ROLLS = listOf(RECEIPT_80, RECEIPT_58)
+
+        val LABELS = LABEL_ROLLS + RECEIPT_ROLLS
         val ALL = PAPER + LABELS
 
         fun byId(id: String?): MediaSize? = ALL.firstOrNull { it.id == id }

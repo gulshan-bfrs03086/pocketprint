@@ -371,12 +371,11 @@ class PrinterAutoSetup(private val context: Context) {
         else -> MediaSize.LABEL_4X6
     }
 
+    // The whole catalogue, not a hand-picked three. These become the printer's
+    // advertised mediaSizes, which is what Android's own print dialog offers -
+    // so a size missing here is a size the user cannot pick from any other app.
     private fun stockFor(language: PrintLanguage): List<MediaSize> =
-        if (language == PrintLanguage.ESC_POS) {
-            listOf(MediaSize.RECEIPT_80, MediaSize.RECEIPT_58)
-        } else {
-            listOf(MediaSize.LABEL_4X6, MediaSize.LABEL_100X150, MediaSize.LABEL_100X50)
-        }
+        if (language == PrintLanguage.ESC_POS) MediaSize.RECEIPT_ROLLS else MediaSize.LABEL_ROLLS
 
     private fun testPage(
         printer: Printer,
