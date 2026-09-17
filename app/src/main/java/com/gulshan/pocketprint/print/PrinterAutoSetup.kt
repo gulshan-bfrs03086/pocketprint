@@ -375,7 +375,12 @@ class PrinterAutoSetup(private val context: Context) {
         if (language == PrintLanguage.ESC_POS) {
             listOf(MediaSize.RECEIPT_80, MediaSize.RECEIPT_58)
         } else {
-            listOf(MediaSize.LABEL_4X6, MediaSize.LABEL_100X150, MediaSize.LABEL_100X50)
+            listOf(
+                MediaSize.LABEL_4X6,
+                MediaSize.LABEL_100X150,
+                MediaSize.LABEL_100X50,
+                MediaSize.LABEL_2X1,
+            )
         }
 
     private fun testPage(

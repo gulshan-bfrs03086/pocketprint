@@ -39,6 +39,21 @@ class MediaSizeTest {
     }
 
     @Test
+    fun `a 2 x 1 label is two by one inches, not 50 by 25 millimetres`() {
+        assertEquals(2 * 25_400, MediaSize.LABEL_2X1.widthMicrons)
+        assertEquals(1 * 25_400, MediaSize.LABEL_2X1.heightMicrons)
+        assertEquals("50.8 mm", "%.1f mm".format(MediaSize.LABEL_2X1.widthMm))
+        assertEquals("25.4 mm", "%.1f mm".format(MediaSize.LABEL_2X1.heightMm))
+
+        // The whole point of the size: small enough that the firmware has to
+        // draw the barcode, at 203 dpi the label is 406 x 203 dots.
+        assertEquals(406, MediaSize.LABEL_2X1.dotsWide(203))
+        assertEquals(203, MediaSize.LABEL_2X1.dotsHigh(203))
+
+        assertTrue(MediaSize.LABEL_2X1 in MediaSize.LABELS)
+    }
+
+    @Test
     fun `a 4 x 6 label is four by six inches, not 100 by 150 millimetres`() {
         assertEquals(4 * 25_400, MediaSize.LABEL_4X6.widthMicrons)
         assertEquals(6 * 25_400, MediaSize.LABEL_4X6.heightMicrons)

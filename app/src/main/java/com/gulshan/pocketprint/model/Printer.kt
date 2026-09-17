@@ -153,6 +153,19 @@ data class MediaSize(
         val LABEL_100X50 = MediaSize("om_label-100x50_100x50mm", "Label 100 x 50 mm", mm(100.0), mm(50.0))
 
         /**
+         * The commonest barcode and price stock there is, and 2 x 1 INCHES
+         * again rather than a metric number that looks like it: 50.8 x 25.4 mm,
+         * not 50 x 25. The error is smaller here than it was on 4 x 6 - 0.8 mm
+         * across and 0.4 mm down - but the stock is smaller too, so the printer
+         * still reaches the gap late and hunts for it exactly the same way.
+         *
+         * At 203 dpi this is 406 x 203 dots, which is under half the head, so
+         * a barcode drawn by the firmware rather than rasterised is the
+         * difference between one that scans and one that does not.
+         */
+        val LABEL_2X1 = MediaSize("om_label-2x1_50.8x25.4mm", "2 x 1 in label", inch(2.0), inch(1.0))
+
+        /**
          * Receipt stock is a continuous roll, so only the width is a property
          * of the paper. The length is the page a document is paginated into -
          * PdfBuilder and the raster encoders use it as the page height, and the
@@ -164,7 +177,7 @@ data class MediaSize(
         val RECEIPT_58 = MediaSize("om_receipt-58_58x297mm", "Receipt 58 mm", mm(58.0), mm(297.0))
 
         val PAPER = listOf(A4, LETTER, LEGAL, A5, PHOTO_4X6)
-        val LABELS = listOf(LABEL_4X6, LABEL_100X150, LABEL_100X50, RECEIPT_80, RECEIPT_58)
+        val LABELS = listOf(LABEL_4X6, LABEL_100X150, LABEL_100X50, LABEL_2X1, RECEIPT_80, RECEIPT_58)
         val ALL = PAPER + LABELS
 
         fun byId(id: String?): MediaSize? = ALL.firstOrNull { it.id == id }
