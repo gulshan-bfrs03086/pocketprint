@@ -1,17 +1,19 @@
 package com.gulshan.pocketprint.ui.components
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -66,7 +68,18 @@ fun WarningBanner(text: String, modifier: Modifier = Modifier) {
     }
 }
 
-/** Horizontally scrolling single-select chip row. */
+/**
+ * Horizontally scrolling single-select chip row, which keeps the selection
+ * visible.
+ *
+ * The scrolling-into-view is not a flourish. There are sixteen label stocks
+ * now, and sixteen chips are several screens wide, so the selected one is
+ * routinely off the right-hand edge - which makes a picker that cannot show
+ * what is picked. It bites hardest on the way in: a selection restored across
+ * a rotation, or the size a printer was set up with, would otherwise come back
+ * apparently unselected, and the obvious repair is to pick a size that was
+ * already correct.
+ */
 @Composable
 fun <T> ChipRow(
     items: List<T>,
@@ -75,13 +88,22 @@ fun <T> ChipRow(
     onSelect: (T) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Row(
-        modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState()),
+    val state = rememberLazyListState()
+    val index = items.indexOf(selected)
+
+    // Keyed on the list as well, because the choices narrow under the user -
+    // picking a printer cuts the language row down to what it speaks - and the
+    // same selection then sits at a different index.
+    LaunchedEffect(index, items.size) {
+        if (index >= 0) state.animateScrollToItem(index)
+    }
+
+    LazyRow(
+        modifier.fillMaxWidth(),
+        state = state,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        items.forEach { item ->
+        itemsIndexed(items) { _, item ->
             FilterChip(
                 selected = item == selected,
                 onClick = { onSelect(item) },

@@ -39,6 +39,70 @@ class MediaSizeTest {
     }
 
     @Test
+    fun `the industry-standard rolls are offered, at the size they are sold as`() {
+        val expected = listOf(
+            MediaSize.LABEL_100X100 to (100 to 100),
+            MediaSize.LABEL_100X75 to (100 to 75),
+            MediaSize.LABEL_100X50 to (100 to 50),
+            MediaSize.LABEL_100X25 to (100 to 25),
+            MediaSize.LABEL_75X50 to (75 to 50),
+            MediaSize.LABEL_60X40 to (60 to 40),
+            MediaSize.LABEL_50X40 to (50 to 40),
+            MediaSize.LABEL_50X30 to (50 to 30),
+            MediaSize.LABEL_50X25 to (50 to 25),
+            MediaSize.LABEL_38X25 to (38 to 25),
+            MediaSize.LABEL_25X25 to (25 to 25),
+        )
+        for ((size, mm) in expected) {
+            val (width, height) = mm
+            assertEquals("${size.id} width", width * 1_000, size.widthMicrons)
+            assertEquals("${size.id} height", height * 1_000, size.heightMicrons)
+            assertTrue("${size.id} is not in the picker", size in MediaSize.LABEL_ROLLS)
+        }
+    }
+
+    /**
+     * The trap this whole file exists for, in its least visible form. 0.8 mm
+     * across and 0.4 mm down reads as rounding, and it is not: they are two
+     * rolls, sold separately, and a printer told the wrong one hunts for the
+     * gap in the wrong place.
+     */
+    @Test
+    fun `50 x 25 mm and 2 x 1 in are different stock, and both are offered`() {
+        assertEquals(50_000, MediaSize.LABEL_50X25.widthMicrons)
+        assertEquals(25_000, MediaSize.LABEL_50X25.heightMicrons)
+        assertEquals(2 * 25_400, MediaSize.LABEL_2X1.widthMicrons)
+        assertEquals(1 * 25_400, MediaSize.LABEL_2X1.heightMicrons)
+
+        assertTrue(MediaSize.LABEL_50X25.id != MediaSize.LABEL_2X1.id)
+        assertTrue(MediaSize.LABEL_50X25 in MediaSize.LABEL_ROLLS)
+        assertTrue(MediaSize.LABEL_2X1 in MediaSize.LABEL_ROLLS)
+
+        // Small enough that the firmware has to draw the barcode.
+        assertEquals(400, MediaSize.LABEL_50X25.dotsWide(203))
+        assertEquals(200, MediaSize.LABEL_50X25.dotsHigh(203))
+    }
+
+    /**
+     * Two names for one size is how a picker stops meaning anything - the user
+     * picks one, it does not match the printer's stored id, and nothing says
+     * why. PHOTO_4X6 and LABEL_4X6 are the one deliberate exception and live
+     * in different lists, which is why this checks the roll list alone.
+     */
+    @Test
+    fun `no two label rolls are the same size under different names`() {
+        val dimensions = MediaSize.LABEL_ROLLS.map { it.widthMicrons to it.heightMicrons }
+        assertEquals(dimensions.size, dimensions.toSet().size)
+    }
+
+    @Test
+    fun `the label list is the rolls followed by the continuous stock`() {
+        assertEquals(MediaSize.LABEL_ROLLS + MediaSize.RECEIPT_ROLLS, MediaSize.LABELS)
+        assertTrue(MediaSize.RECEIPT_80 in MediaSize.RECEIPT_ROLLS)
+        assertTrue(MediaSize.LABEL_ROLLS.none { it in MediaSize.RECEIPT_ROLLS })
+    }
+
+    @Test
     fun `a 4 x 6 label is four by six inches, not 100 by 150 millimetres`() {
         assertEquals(4 * 25_400, MediaSize.LABEL_4X6.widthMicrons)
         assertEquals(6 * 25_400, MediaSize.LABEL_4X6.heightMicrons)
