@@ -1,6 +1,7 @@
 package com.gulshan.pocketprint.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -14,9 +15,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.flow.first
 
 @Composable
 fun SectionHeader(title: String, modifier: Modifier = Modifier) {
@@ -79,6 +82,16 @@ fun WarningBanner(text: String, modifier: Modifier = Modifier) {
  * a rotation, or the size a printer was set up with, would otherwise come back
  * apparently unselected, and the obvious repair is to pick a size that was
  * already correct.
+ *
+ * It moves the row as little as that takes. The first version put the selection
+ * at the leading edge every time, which is the simplest thing that keeps it
+ * visible and hides everything before it: a language row of TSPL, ZPL, ESC/POS,
+ * PCL opened with its first two chips cut off because the third was selected,
+ * and a size the user had added in front of the catalogue was scrolled out of
+ * sight by the very selection it sat beside. A chip that is already fully on
+ * screen is left alone; one that is not is brought in at the nearest edge; one
+ * too far away to have been laid out at all is jumped to with a third of the row
+ * left in front of it, so what precedes it is still visibly there to scroll to.
  */
 @Composable
 fun <T> ChipRow(
@@ -95,7 +108,24 @@ fun <T> ChipRow(
     // picking a printer cuts the language row down to what it speaks - and the
     // same selection then sits at a different index.
     LaunchedEffect(index, items.size) {
-        if (index >= 0) state.animateScrollToItem(index)
+        if (index < 0) return@LaunchedEffect
+
+        // Nothing has a position until the row has been measured once.
+        snapshotFlow { state.layoutInfo.visibleItemsInfo.isNotEmpty() }.first { it }
+
+        val info = state.layoutInfo
+        val start = info.viewportStartOffset
+        val end = info.viewportEndOffset
+        val chip = info.visibleItemsInfo.firstOrNull { it.index == index }
+        when {
+            // Instant, not animated: from a cold start this is a jump across
+            // most of the row, and watching it slide in from the far end is
+            // worse than not seeing it move.
+            chip == null -> state.scrollToItem(index, scrollOffset = -(end - start) / 3)
+            chip.offset < start -> state.animateScrollBy((chip.offset - start).toFloat())
+            chip.offset + chip.size > end ->
+                state.animateScrollBy((chip.offset + chip.size - end).toFloat())
+        }
     }
 
     LazyRow(
