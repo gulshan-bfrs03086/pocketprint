@@ -31,6 +31,7 @@ import com.gulshan.pocketprint.label.LabelText
 import com.gulshan.pocketprint.ui.MediaSizeSaver
 import com.gulshan.pocketprint.ui.enumSaver
 import com.gulshan.pocketprint.model.LabelStock
+import com.gulshan.pocketprint.model.labelSizesFor
 import com.gulshan.pocketprint.label.Tspl
 import com.gulshan.pocketprint.label.Zpl
 import com.gulshan.pocketprint.model.MediaSize
@@ -129,7 +130,7 @@ fun LabelScreen(viewModel: PrintersViewModel) {
 
         SectionHeader(stringResource(R.string.label_size))
         ChipRow(
-            items = MediaSize.LABELS,
+            items = labelSizesFor(selectedPrinter, media),
             selected = media,
             label = { it.label },
             onSelect = { media = it },
