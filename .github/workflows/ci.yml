@@ -35,6 +35,14 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
+        with:
+          # Not the action's default, which is "tools platform-tools".
+          # Google retired the obsolete `tools` package, so sdkmanager
+          # exits 1 on it and every job dies at setup having compiled
+          # nothing. The step below installs the platform and
+          # build-tools this build actually pins, so platform-tools is
+          # all that is wanted from here.
+          packages: platform-tools
 
       - name: Install SDK packages
         run: sdkmanager "platforms;android-36" "build-tools;35.0.0"
@@ -90,6 +98,14 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
+        with:
+          # Not the action's default, which is "tools platform-tools".
+          # Google retired the obsolete `tools` package, so sdkmanager
+          # exits 1 on it and every job dies at setup having compiled
+          # nothing. The step below installs the platform and
+          # build-tools this build actually pins, so platform-tools is
+          # all that is wanted from here.
+          packages: platform-tools
 
       - name: Install SDK packages
         run: sdkmanager "platforms;android-36" "build-tools;35.0.0"
