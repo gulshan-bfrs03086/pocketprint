@@ -47,3 +47,57 @@ fun labelSizesFor(printer: Printer?, selected: MediaSize? = null): List<MediaSiz
     val offered = (own + catalogue).distinctBy { it.id }
     return if (selected == null || offered.any { it.id == selected.id }) offered else offered + selected
 }
+
+/**
+ * The size [printer] is loaded with, as the Labels screen would offer it, or
+ * null when its list holds nothing that is label stock.
+ *
+ * The first entry in a printer's sizes is what it was set to: setup puts the
+ * stock the user picked at the front, and the settings dialog does the same
+ * with its Default stock. Everything after that is what else it can take.
+ *
+ * "First" is not quite "first entry", for two reasons that both come from the
+ * list being shared with paper. A printer can be defaulted to A4, which is
+ * nothing a label screen offers, so entries are tried in order until one is
+ * something it does. And the match is on dimensions rather than identity,
+ * because the same roll has more than one name: a 4 x 6 photo size is the
+ * catalogue's 4 x 6 label, and a typed-in 50 x 25 is the catalogue's, which
+ * [labelSizesFor] deliberately does not list a second time. Returning the
+ * printer's own entry there would be a size the row does not contain.
+ */
+fun defaultLabelSize(printer: Printer): MediaSize? {
+    val offered = labelSizesFor(printer)
+    for (size in printer.capabilities.mediaSizes) {
+        offered.firstOrNull {
+            it.widthMicrons == size.widthMicrons && it.heightMicrons == size.heightMicrons
+        }?.let { return it }
+    }
+    return null
+}
+
+/**
+ * The size the Labels screen should be on once [printer] has been selected.
+ *
+ * The screen used to open on 100 x 50 mm and stay there whatever the printer
+ * was loaded with, so a printer set up for 4 x 6 printed at 100 x 50 unless
+ * somebody noticed and tapped another chip. On a printer that finds labels by
+ * their gap that is not a cosmetic slip: it feeds past the gap it should have
+ * stopped at, and stops with a paper fault.
+ *
+ * The printer's size is where the screen *starts*, not what it insists on. The
+ * size row sits above the printer row, so choosing a size and then a printer is
+ * the ordinary order, and replacing a size somebody deliberately picked because
+ * they then tapped the printer would be the surprise this exists to remove,
+ * pointing the other way. Once [chosenByUser], [current] stands.
+ *
+ * A printer with no label size of its own leaves [current] alone rather than
+ * guessing.
+ */
+fun sizeWhenPrinterSelected(
+    current: MediaSize,
+    chosenByUser: Boolean,
+    printer: Printer?,
+): MediaSize {
+    if (chosenByUser || printer == null) return current
+    return defaultLabelSize(printer) ?: current
+}
