@@ -358,9 +358,10 @@ every shared link and HTML document down together the day it stops. So it has a 
 fallback — `PdfDocument` and `WebView.draw`, worse output but a document that prints — and the
 gate fails if a second platform-package class appears or if the fallback stops being wired in.
 
-Versions are built on `release/X.Y` branches and reach `main` by merge, so `main` always holds the
-latest — see [docs/RELEASING.md](docs/RELEASING.md). The version is declared once, in
-`app/build.gradle.kts`, and the version code derives from it.
+Work reaches `main` by pull request. Versions are prepared on `release/X.Y` branches, cut from `main`
+and merged back to ship, so `main` is the latest release plus whatever has been merged since — see
+[docs/RELEASING.md](docs/RELEASING.md). The version is declared once, in `app/build.gradle.kts`, and
+the version code derives from it.
 
 ## Translating it
 

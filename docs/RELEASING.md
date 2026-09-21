@@ -1,26 +1,28 @@
 # Releasing
 
-`main` always holds the latest version. Every version is built on its own
-branch and reaches `main` by merge, so `main` is never a half-finished version
-and the history says which work belonged to which release.
+Work reaches `main` by pull request, like any other change. A release is
+prepared on its own branch - cut from `main` when it is time to ship - and
+reaches `main` by merge. So `main` is the latest release plus whatever has been
+merged since, and the history says which release each piece of work shipped in.
 
 ```
-main       ──●────────────────────●───────────────────●──   latest version
-              \                  /  \                /
-release/1.1    ●──●──●──●──●──●──    ●──●──●──●──●──●        version 1.1 work
-                                v1.1.0            v1.2.0
+                               v1.5.0          v1.5.1
+main         ──●──●──●────────────●───●───────────●──
+                      \          /     \         /
+release/1.5            ●───●───●────────●───●───●
+                       cut, prep       main in, prep
 ```
 
 ## Branches
 
 | | |
 |---|---|
-| `main` | The latest version. Only ever advanced by merging a release branch. |
-| `release/X.Y` | Where version X.Y is built. Cut from `main`, merged back when the version is done. |
+| `main` | Where work lands, by pull request. Its version number is the last release that landed; anything merged since is not yet released. |
+| `release/X.Y` | Where X.Y.0, X.Y.1 and every later patch to it are prepared. Cut from `main`, merged back for each release. |
 
 Release branches are kept after the merge, not deleted. A patch to a shipped
-version goes on that version's branch — `release/1.1` for a 1.1.1 — which is
-the whole reason the branch outlives the merge.
+version goes through that version's branch - `release/1.5` for a 1.5.1 - which
+is the whole reason the branch outlives the merge.
 
 ## Versions
 
@@ -28,43 +30,81 @@ The version is declared once, in `app/build.gradle.kts`:
 
 ```kotlin
 val versionMajor = 1
-val versionMinor = 0
-val versionPatch = 1
+val versionMinor = 5
+val versionPatch = 2
 ```
 
 Everything else derives from it, including the version code, so the
 name and the code cannot drift apart. Bump it as the **first commit on the
-release branch**, never on `main` — `main` takes the new version through the
-merge, which is what keeps "main is the latest version" true rather than
-aspirational.
+release branch**, never on `main` - `main` takes the new version through the
+merge, which is what makes its version number mean "the last release that
+landed". A build from `main` between releases therefore carries that release's
+version and version code; it is not a version of its own.
 
 Tags are `vX.Y.Z` and are cut on `main`, on the merge commit. A tag names a
-version that shipped; a branch names a version being built.
+version that shipped; a branch names a version being prepared.
 
 ## Cutting a version
 
+A new major or minor version is cut from `main`, once what is on it is what
+should ship:
+
 ```bash
-./scripts/cut-release.sh 1.1     # or: make cut-release VERSION=1.1
+./scripts/cut-release.sh 1.5     # or: make cut-release VERSION=1.5
 ```
 
-That checks the tree is clean and `main` is current, branches `release/1.1`,
-bumps the version, commits and pushes. Then do the work on that branch.
+That checks the tree is clean and `main` is level with origin, branches
+`release/1.5`, bumps the version, commits and pushes.
+
+A patch belongs on the branch of the version it follows. Land the fix on `main`
+first, as a pull request like anything else, then:
+
+```bash
+./scripts/cut-release.sh 1.5.1   # checks out release/1.5, bumps, pushes
+git merge main                   # on release/1.5: brings the fix across
+```
+
+The script does not bring `main` in, so that step is yours. Say in the merge
+message that the fix arrived from `main`, so the history explains why a patch
+branch merged its own trunk.
+
+**A patch carries everything on `main`.** The merge brings whatever has landed
+there since the branch was last merged, not only the fix. That is the right
+answer while `main` holds nothing that is not meant to ship. When it does,
+cherry-pick the fix's commits onto `release/X.Y` instead of merging `main`.
+
+### Preparing the branch
+
+Two more things go on the release branch before it lands:
+
+- **Raise `highestPublishedVersionCode`** in `app/build.gradle.kts` to the
+  version code of the release that most recently shipped - the one before this.
+  It is the floor every later build has to clear, and nothing else remembers it.
+  It has to be raised here and not on `main`: `main` still builds that release,
+  so a floor equal to its own code would fail the check against the very version
+  it guards. It was missed once, after 1.4.1, which is why it is written down.
+- **The README's unit-test count**, if it changed.
+
+Then `make ci` and `make verify`: the first is everything CI runs, in CI's
+order, against your local signing key; the second prints the signing
+certificate, which has to be the one every earlier release carries. Push, and CI
+runs on the branch.
 
 ## Landing it
 
 ```bash
 git checkout main
-git merge --no-ff release/1.1
-git tag -a v1.1.0 -m "PocketPrint 1.1.0"
+git merge --no-ff release/1.5
+git tag -a v1.5.2 -m "PocketPrint 1.5.2"
 git push origin main --follow-tags
 ```
 
 `--no-ff` is deliberate: the merge commit is what records that a version
 landed. Fast-forwarding would flatten the release into `main` and lose it.
 
-CI runs on `main`, on every `release/**` push and on every `v*` tag. Checking a
-release branch only when it merges means checking it after the decision to ship
-has already been made.
+CI runs on every pull request, on `main`, on every `release/**` push and on
+every `v*` tag. Checking a release branch only when it merges means checking it
+after the decision to ship has already been made.
 
 ## Signing
 
