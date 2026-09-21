@@ -15,8 +15,8 @@ plugins {
  * See docs/RELEASING.md.
  */
 val versionMajor = 1
-val versionMinor = 4
-val versionPatch = 1
+val versionMinor = 5
+val versionPatch = 0
 
 /**
  * The version code, derived from the version rather than tracked by hand.
