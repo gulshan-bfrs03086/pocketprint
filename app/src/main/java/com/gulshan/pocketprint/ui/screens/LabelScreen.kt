@@ -32,6 +32,7 @@ import com.gulshan.pocketprint.ui.MediaSizeSaver
 import com.gulshan.pocketprint.ui.enumSaver
 import com.gulshan.pocketprint.model.LabelStock
 import com.gulshan.pocketprint.model.labelSizesFor
+import com.gulshan.pocketprint.model.sizeWhenPrinterSelected
 import com.gulshan.pocketprint.label.Tspl
 import com.gulshan.pocketprint.label.Zpl
 import com.gulshan.pocketprint.model.MediaSize
@@ -73,6 +74,10 @@ fun LabelScreen(viewModel: PrintersViewModel) {
     var media by rememberSaveable(stateSaver = MediaSizeSaver) {
         mutableStateOf(MediaSize.LABEL_100X50)
     }
+    // Whether a size has been tapped, as opposed to the one it started on. Saved
+    // alongside `media`, or a rotation would forget the choice and let the next
+    // printer selection replace it.
+    var sizeChosen by rememberSaveable { mutableStateOf(false) }
     val status by viewModel.labelStatus.collectAsStateWithLifecycle()
 
     // Resolved from the saved list each time, so a printer deleted while this
@@ -133,7 +138,10 @@ fun LabelScreen(viewModel: PrintersViewModel) {
             items = labelSizesFor(selectedPrinter, media),
             selected = media,
             label = { it.label },
-            onSelect = { media = it },
+            onSelect = {
+                media = it
+                sizeChosen = true
+            },
         )
 
         SectionHeader(stringResource(R.string.label_language))
@@ -170,6 +178,7 @@ fun LabelScreen(viewModel: PrintersViewModel) {
             selectedPrinter?.capabilities?.languages
                 ?.firstOrNull { it.isRaster && it != PrintLanguage.PWG_RASTER }
                 ?.let { language = it }
+            media = sizeWhenPrinterSelected(media, sizeChosen, selectedPrinter)
             viewModel.clearLabelStatus()
         }
 
