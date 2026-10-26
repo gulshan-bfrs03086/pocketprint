@@ -113,6 +113,32 @@ class TsplCompletionTest {
     }
 
     @Test
+    fun `a printer that is paused or in an error state is not reported as having finished`() {
+        // Neither ready nor printing nor one of the faults we name, so it was
+        // being counted as ready - and a printer that is holding the label was
+        // reported Completed. The same byte three times is a verdict.
+        assertEquals(Ending.NeedsAttention(0x10), end(0x00, null, 0x10, 0x10, 0x10))
+        assertEquals(Ending.NeedsAttention(0x80), end(0x00, null, 0x80, 0x80, 0x80))
+        assertEquals(Ending.NeedsAttention(0x40), end(0x00, null, 0x40, 0x40, 0x40))
+    }
+
+    @Test
+    fun `one stray byte is not a verdict`() {
+        // A single odd answer between ready ones must not end the wait either way.
+        val result = end(0x00, null, 0x10, null, 0x00)
+
+        assertTrue("$result", result is Ending.Finished)
+    }
+
+    @Test
+    fun `the ribbon bit alone is not a reason to doubt a ready printer`() {
+        // A direct-thermal printer may set it with nothing wrong.
+        assertTrue(end(0x00, null, 0x08) is Ending.Finished)
+        // And printing with it set is still printing.
+        assertTrue(end(0x00, null, 0x28, 0x28, 0x08) is Ending.Finished)
+    }
+
+    @Test
     fun `a job that is still busy when the time allowed runs out is timed out, not failed`() {
         val result = end(0x00, null, null, null, null, null, null, max = 10_000)
 

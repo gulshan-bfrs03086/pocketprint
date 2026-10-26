@@ -46,6 +46,12 @@ internal object TsplStatus {
     const val PAPER_EMPTY = 0x04
     const val PRINTING = 0x20
 
+    /**
+     * The ribbon bit, which a direct-thermal printer may set with nothing wrong:
+     * not a fault, and not a reason to think the printer is not ready either.
+     */
+    const val RIBBON = 0x08
+
     enum class Fault { PAPER_EMPTY, PAPER_JAM, HEAD_OPEN }
 
     /**
@@ -72,8 +78,21 @@ internal sealed interface Ending {
     /** It reports something that stops a label coming out. */
     data class Fault(val fault: TsplStatus.Fault) : Ending
 
+    /**
+     * It keeps answering with something that is neither ready, printing nor a
+     * fault: paused, or an "other error", or a bit nobody has documented. It may
+     * be holding the label rather than printing it, so this is not Finished.
+     */
+    data class NeedsAttention(val status: Int) : Ending
+
     /** It never answered a status query at all, so nothing can be said either way. */
     data object NoAnswer : Ending
+
+    /**
+     * The link went while asking. That says nothing about whether the printer
+     * answers status queries, so unlike [NoAnswer] it is not remembered.
+     */
+    data object LinkLost : Ending
 
     /** Still busy when the time allowed ran out. The label may well still come out. */
     data class TimedOut(val waitedMs: Long) : Ending
@@ -98,12 +117,14 @@ internal suspend fun awaitTsplEnd(
     onBusy: (waitedMs: Long) -> Unit = {},
     firstAnswerWithinPolls: Int = 3,
     readyPollsBeforeGivingUp: Int = 3,
+    attentionPollsBeforeGivingUp: Int = 3,
 ): Ending {
     val started = now()
     var polls = 0
     var answeredEver = false
     var sawBusy = false
     var readyInARow = 0
+    var attentionInARow = 0
 
     while (true) {
         val waited = now() - started
@@ -119,20 +140,40 @@ internal suspend fun awaitTsplEnd(
             if (answeredEver) {
                 sawBusy = true
                 readyInARow = 0
+                attentionInARow = 0
                 onBusy(now() - started)
             }
         } else {
             answeredEver = true
             TsplStatus.fault(status)?.let { return Ending.Fault(it) }
-            if (status and TsplStatus.PRINTING != 0) {
-                sawBusy = true
-                readyInARow = 0
-                onBusy(now() - started)
-            } else {
-                if (sawBusy) return Ending.Finished(now() - started)
-                readyInARow++
-                if (readyInARow >= readyPollsBeforeGivingUp) {
-                    return Ending.ReadyButNeverSeenBusy(now() - started)
+
+            // Three kinds of answer that are not a fault. Printing is busy. Ready
+            // is nothing at all, ignoring the ribbon bit, which is noise on a
+            // direct-thermal printer. Anything else - paused, "other error", a bit
+            // nobody has documented - is neither: counting it as ready would report
+            // a printer that is holding the label as having finished with it.
+            val meaningful = status and TsplStatus.RIBBON.inv()
+            when {
+                meaningful and TsplStatus.PRINTING.inv() != 0 -> {
+                    readyInARow = 0
+                    // A stray byte is not a verdict; the same one three times is.
+                    if (++attentionInARow >= attentionPollsBeforeGivingUp) {
+                        return Ending.NeedsAttention(status)
+                    }
+                }
+                meaningful and TsplStatus.PRINTING != 0 -> {
+                    sawBusy = true
+                    readyInARow = 0
+                    attentionInARow = 0
+                    onBusy(now() - started)
+                }
+                else -> {
+                    attentionInARow = 0
+                    if (sawBusy) return Ending.Finished(now() - started)
+                    readyInARow++
+                    if (readyInARow >= readyPollsBeforeGivingUp) {
+                        return Ending.ReadyButNeverSeenBusy(now() - started)
+                    }
                 }
             }
         }

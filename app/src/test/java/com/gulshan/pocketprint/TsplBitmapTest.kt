@@ -539,6 +539,19 @@ class TsplBitmapTest {
         assertTrue("${commands.size} of $full", commands.size < full * 35 / 100)
     }
 
+    @Test
+    fun `a position too large for the compressed header falls back to plain BITMAP instead of wrapping`() {
+        // The header's x, y, width and height are 16 bits. A block placed past
+        // that would have been written modulo 65536: a different picture, in
+        // a different place, with no error. Plain BITMAP says its numbers in
+        // decimal and has no such limit.
+        val page = Page(40, 60).ink(0, 0, 40, 60)
+
+        val commands = TsplBitmap.encode(page.bytes, 40, 60, x = 70_000, y = 0, compress = true)
+
+        assertEquals("BITMAP 70000,0,", String(commands, 0, 15, Charsets.US_ASCII))
+    }
+
     // -- helpers ----------------------------------------------------------------
 
     private fun tightBox(page: Page): InkBlock {

@@ -192,6 +192,10 @@ fun LabelScreen(viewModel: PrintersViewModel) {
                     media = media,
                     dpi = dpi,
                     stock = printer.stock,
+                    // Without it, a label in a script the printer's own fonts
+                    // cannot draw goes out as an uncompressed picture on the one
+                    // kind of printer that was switched to compressed for it.
+                    compressBitmaps = printer.capabilities.compressedBitmaps,
                     copies = options.copies,
                     headline = title,
                     line2 = line2,
@@ -243,6 +247,7 @@ private fun buildLabel(
     media: MediaSize,
     dpi: Int,
     stock: LabelStock,
+    compressBitmaps: Boolean,
     copies: Int,
     headline: String,
     line2: String,
@@ -258,7 +263,7 @@ private fun buildLabel(
 
     return when (language) {
 
-        PrintLanguage.TSPL -> Tspl(media, dpi).apply {
+        PrintLanguage.TSPL -> Tspl(media, dpi, compressBitmaps).apply {
             setup(stock)
             var y = LABEL_MARGIN
             if (printerFonts) {

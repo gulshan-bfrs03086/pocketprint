@@ -143,8 +143,10 @@ object InkBlocks {
 
     private fun solve(page: Page, start: Box, gapRows: Int, gapBytes: Int): List<InkBlock> {
         val blocks = mutableListOf<InkBlock>()
-        // An explicit stack: depth is bounded by the number of cuts, but the
-        // page is the caller's and this runs on a phone.
+        // An explicit stack for the cuts: depth is bounded by their number, but
+        // the page is the caller's and this runs on a phone. [peel] re-enters
+        // this once for each layer of frame it takes off, which is a few on any
+        // real label and at most about a tenth of the page height on a solid one.
         val pending = ArrayDeque<Box>()
         pending.add(start)
 

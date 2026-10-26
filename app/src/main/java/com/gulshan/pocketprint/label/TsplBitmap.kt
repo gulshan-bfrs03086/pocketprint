@@ -50,7 +50,12 @@ object TsplBitmap {
                 .toByteArray(Charsets.US_ASCII)
             val squeezed = if (compress) Lzss.encode(raw) else null
 
-            if (squeezed != null && COMPRESSED_HEADER + squeezed.size < plain.size + raw.size) {
+            // The header's fields are 16 bits, and a value that does not fit would
+            // wrap silently into a different picture. No page this app makes is
+            // that large, but plain BITMAP states its numbers in decimal.
+            val fits = maxOf(xDots, yDots, block.widthBytes, block.height) <= MAX_COMPRESSED_FIELD && minOf(xDots, yDots) >= 0
+
+            if (squeezed != null && fits && COMPRESSED_HEADER + squeezed.size < plain.size + raw.size) {
                 out.write(compressedHeader(xDots, yDots, block.widthBytes, block.height))
                 out.write(squeezed)
             } else {
@@ -69,6 +74,9 @@ object TsplBitmap {
 
     /** The 16 bytes in front of compressed data: see [compressedHeader]. */
     private const val COMPRESSED_HEADER = 16
+
+    /** The largest number a 16-bit header field holds. */
+    private const val MAX_COMPRESSED_FIELD = 0xFFFF
 
     /**
      * TSC's compressed bitmap command, as the official utility sends it: `!S`,

@@ -260,6 +260,7 @@
     <string name="tspl_waiting_for_printer">Waiting for the printer to finish the label (%1$d s)\u2026</string>
     <string name="tspl_ready_not_busy">The printer said it was ready but was never seen busy with this job, so that does not show a label was printed. Check the printer before printing again.</string>
     <string name="tspl_still_busy">The printer was still busy with this job after %1$d s, when the app stopped waiting. The label may still come out; check the printer before printing again, or it will print twice.</string>
+    <string name="tspl_needs_attention">The printer is paused or reporting an error, so it may be holding this label instead of printing it. Check the printer, and print again only if no label comes out.</string>
     <string name="tspl_fault_paper_empty">The printer reports it is out of paper or labels.</string>
     <string name="tspl_fault_paper_jam">The printer reports a paper jam.</string>
     <string name="tspl_fault_head_open">The printer reports its print head is open.</string>

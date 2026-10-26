@@ -398,6 +398,11 @@ class PrintEngine(
         bytesSent: Long,
         listener: JobListener,
     ): Ending? {
+        // A network printer takes a job in at wire speed, and asking it costs every
+        // first job a few seconds: its transport's readAvailable does not wait for
+        // a reply to arrive.
+        if (printer.address is PrinterAddress.Raw) return null
+
         val key = PrinterQueue.keyOf(printer)
         if (!TsplStatusMemory.answers(key)) return null
 
@@ -419,8 +424,10 @@ class PrintEngine(
         } catch (cancel: kotlinx.coroutines.CancellationException) {
             throw cancel
         } catch (t: Exception) {
+            // The link went. Not remembered against the printer: it says nothing
+            // about whether it answers.
             Log.i(TAG, "status wait ended early: ${t.message}")
-            Ending.NoAnswer
+            Ending.LinkLost
         }
         if (ending is Ending.NoAnswer) TsplStatusMemory.markSilent(key)
         return ending
@@ -455,9 +462,11 @@ class PrintEngine(
         )
         is Ending.ReadyButNeverSeenBusy ->
             PrintResult.Sent(sent, reason = context.getString(R.string.tspl_ready_not_busy))
+        is Ending.NeedsAttention ->
+            PrintResult.Sent(sent, reason = context.getString(R.string.tspl_needs_attention))
         is Ending.TimedOut ->
             PrintResult.Sent(sent, reason = context.getString(R.string.tspl_still_busy, ending.waitedMs / 1_000))
-        is Ending.NoAnswer, null -> PrintResult.Sent(sent, reason = unconfirmed)
+        is Ending.NoAnswer, is Ending.LinkLost, null -> PrintResult.Sent(sent, reason = unconfirmed)
     }
 
     private suspend fun send(
