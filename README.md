@@ -317,6 +317,15 @@ else's dialog. The entry is a second name for the main activity (`AddPrintersEnt
 how the app tells it from the launcher; `AddPrintersEntryTest` keeps the manifest,
 `print_service.xml` and the code agreeing on it.
 
+If another app's print dialog, or Settings → Printing → PocketPrint, sits on "Searching for
+printers" and never lists a printer you can see saved in PocketPrint, switch the PocketPrint print
+service **off and on** there. That has fixed it every time it was seen: once, on a test device,
+after the app had been reinstalled over itself and swiped away, when the system was left holding a
+dead connection to the service and never started it again. It has not been reproduced since (on
+the same device: reinstalling while idle, reinstalling while the print dialog was connected, and
+swiping the app out of recents all reconnected on their own), so there is no workaround in the app
+for it, only this.
+
 PocketPrint asks for nothing on first launch. Each permission is requested at the moment it is
 needed: Bluetooth when you set up a printer, notifications when you print. If one has been
 refused to the point where Android stops asking, the app says so and offers the way back.
