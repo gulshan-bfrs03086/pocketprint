@@ -423,8 +423,10 @@ that one test skips, saying so.
 The rendering path is verified independently of any printer. Debug builds log the dark pixels
 per rendered page and the ink coverage of the packed bitmap, and save every generated command
 stream under `getExternalFilesDir` for byte-level inspection. On a 4x6 label at 203 dpi a
-US Letter page renders to 812 x 1051 dots at 30.02% ink and emits exactly 107,357 bytes of
-TSPL. That makes it quick to tell a rendering bug from a printer that is not marking.
+US Letter page renders to 812 x 1051 dots at 30.02% ink, which as one whole bitmap was exactly
+107,357 bytes of TSPL; the byte count is now smaller and depends on how much of the page is
+blank, since only blocks with ink are sent (see `InkBlocks`). The ink percentage is the number
+that makes it quick to tell a rendering bug from a printer that is not marking.
 
 **200 unit tests** cover the IPP codec (request framing, multi-value and resolution decoding,
 unknown-tag tolerance), PWG raster round trips including band-boundary equivalence, PWG media

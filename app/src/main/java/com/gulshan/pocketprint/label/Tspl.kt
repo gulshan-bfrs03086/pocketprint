@@ -138,8 +138,13 @@ class Tspl(
     fun line(x: Int, y: Int, width: Int, height: Int) = cmd("BAR $x,$y,$width,$height")
 
     /**
-     * BITMAP x,y,widthBytes,height,mode,<binary>. Mode 0 overwrites.
-     * The bitmap payload follows the newline-terminated header directly.
+     * Sends the image as BITMAP x,y,widthBytes,height,0,<binary> CR LF, one per
+     * rectangle that has ink in it (see [InkBlocks]), and nothing for the white.
+     *
+     * That means the image's white margin does not erase anything: it used to be
+     * one BITMAP that overwrote its whole rectangle, and a caller that drew TEXT
+     * or a BOX first and relied on that would now see them show through. Draw an
+     * image first, or keep it clear of other drawing.
      */
     fun image(x: Int, y: Int, bitmap: Bitmap, dither: Boolean = true) = apply {
         val maxWidth = media.dotsWide(dpi)
@@ -167,9 +172,17 @@ class Tspl(
         // TSPL prints a dot for a 0 bit, so invert our ink mask.
         for (i in packed.indices) packed[i] = packed[i].toInt().inv().toByte()
 
-        out.write("BITMAP $x,$y,$bytesPerRow,$h,0,".toByteArray(Charsets.US_ASCII))
-        out.write(packed)
-        out.write("\r\n".toByteArray(Charsets.US_ASCII))
+        // Only the rectangles that have ink in them are sent. The page used to
+        // go out whole - 45 KB for a 75 x 75 mm label - and a white byte costs
+        // as much to send as a black one; see InkBlocks for what that cost on a
+        // printer that takes in a few hundred bytes a second.
+        val commands = TsplBitmap.encode(packed, bytesPerRow, h, x, y)
+        out.write(commands)
+        com.gulshan.pocketprint.print.Diagnostics.record(
+            "TsplDiag",
+            "sending ${commands.size} bytes of bitmap commands instead of " +
+                "${packed.size} (${"%.1f".format(commands.size * 100.0 / packed.size)}%)",
+        )
         if (scaled !== bitmap) scaled.recycle()
     }
 
