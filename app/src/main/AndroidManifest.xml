@@ -123,6 +123,17 @@
                 android:resource="@xml/usb_device_filter" />
         </activity>
 
+        <!-- What the system's "Add printer using PocketPrint" entry opens
+             (print_service.xml's addPrintersActivity). MainActivity under a
+             second name, so the app can tell that launch from the launcher's:
+             see AddPrintersEntry. Exported because the print dialog and
+             Settings are other apps; there is no intent filter, so nothing
+             reaches it except by this exact name. -->
+        <activity-alias
+            android:name=".AddPrintersEntry"
+            android:exported="true"
+            android:targetActivity=".MainActivity" />
+
         <!-- Share-sheet target: "Print" from any app.
 
              The types are listed rather than wildcarded. */* put PocketPrint in

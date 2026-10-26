@@ -150,6 +150,15 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
     private val _setupStock = MutableStateFlow(MediaSize.DEFAULT_LABEL)
     val setupStock: StateFlow<MediaSize> = _setupStock.asStateFlow()
 
+    /**
+     * Raised when the system's "Add printer using PocketPrint" entry opens the
+     * app (see AddPrintersEntry). AppNav answers by going to the Print tab and
+     * the Print tab by showing the setup card; it is the card, not the
+     * ViewModel, that starts anything, because setup configures the printer for
+     * a stock the person has to confirm first.
+     */
+    val addPrinterRequest = OneShotRequest()
+
     val savedPrinters: StateFlow<List<Printer>> = printerRepo.saved
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 

@@ -308,6 +308,15 @@ One switch, once, under **Settings → Connected devices → Printing → Pocket
 button in the app that takes you straight there, and the app tells you whether the switch is
 already on — or says plainly that this version of Android will not let it find out.
 
+With it on, the print dialog in any app lists **Add printer using PocketPrint**. That opens the
+app on the Print tab with the setup card scrolled to the top: the label stock to confirm, and
+the button that starts setup. It only shows the card. Setup feeds and prints a test label, and
+a stock that does not match the roll loaded makes the printer stop with a paper fault, so it
+starts when the person has seen the stock and taps the button, not when they tap somebody
+else's dialog. The entry is a second name for the main activity (`AddPrintersEntry`), which is
+how the app tells it from the launcher; `AddPrintersEntryTest` keeps the manifest,
+`print_service.xml` and the code agreeing on it.
+
 PocketPrint asks for nothing on first launch. Each permission is requested at the moment it is
 needed: Bluetooth when you set up a printer, notifications when you print. If one has been
 refused to the point where Android stops asking, the app says so and offers the way back.
