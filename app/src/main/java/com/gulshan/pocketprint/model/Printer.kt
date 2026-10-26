@@ -178,6 +178,7 @@ data class MediaSize(
          * difference between one that scans and one that does not - which is
          * the path the label screen already takes.
          */
+        val LABEL_75X75 = MediaSize("om_label-75x75_75x75mm", "Label 75 x 75 mm", mm(75.0), mm(75.0))
         val LABEL_75X50 = MediaSize("om_label-75x50_75x50mm", "Label 75 x 50 mm", mm(75.0), mm(50.0))
         val LABEL_60X40 = MediaSize("om_label-60x40_60x40mm", "Label 60 x 40 mm", mm(60.0), mm(40.0))
         val LABEL_50X40 = MediaSize("om_label-50x40_50x40mm", "Label 50 x 40 mm", mm(50.0), mm(40.0))
@@ -222,7 +223,7 @@ data class MediaSize(
         val LABEL_ROLLS = listOf(
             LABEL_4X6, LABEL_100X150,
             LABEL_100X100, LABEL_100X75, LABEL_100X50, LABEL_100X25,
-            LABEL_75X50, LABEL_60X40, LABEL_50X40, LABEL_50X30, LABEL_50X25, LABEL_2X1,
+            LABEL_75X75, LABEL_75X50, LABEL_60X40, LABEL_50X40, LABEL_50X30, LABEL_50X25, LABEL_2X1,
             LABEL_38X25, LABEL_25X25,
         )
 
@@ -230,6 +231,22 @@ data class MediaSize(
         val RECEIPT_ROLLS = listOf(RECEIPT_80, RECEIPT_58)
 
         val LABELS = LABEL_ROLLS + RECEIPT_ROLLS
+
+        /**
+         * The label size the app assumes until it is told otherwise: where the
+         * Labels screen opens, and what printer setup offers as the stock
+         * loaded.
+         *
+         * Only an assumption. A printer that has been set up carries the stock
+         * it was set up with, and the Labels screen moves onto that when the
+         * printer is selected (see sizeWhenPrinterSelected), because a size
+         * longer than the roll makes a gap-sensing printer feed past the gap
+         * and stop with a paper fault. This is what stands where nothing has
+         * said what is loaded - so it has to be a size the label row offers,
+         * which MediaSizeTest pins, or the screen would open on a chip it does
+         * not show.
+         */
+        val DEFAULT_LABEL = LABEL_75X75
         val ALL = PAPER + LABELS
 
         fun byId(id: String?): MediaSize? = ALL.firstOrNull { it.id == id }

@@ -72,7 +72,7 @@ fun LabelScreen(viewModel: PrintersViewModel) {
         mutableStateOf(PrintLanguage.TSPL)
     }
     var media by rememberSaveable(stateSaver = MediaSizeSaver) {
-        mutableStateOf(MediaSize.LABEL_100X50)
+        mutableStateOf(MediaSize.DEFAULT_LABEL)
     }
     // Whether a size has been tapped, as opposed to the one it started on. Saved
     // alongside `media`, or a rotation would forget the choice and let the next

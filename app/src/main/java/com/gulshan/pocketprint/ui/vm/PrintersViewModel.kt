@@ -147,7 +147,7 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
     val certificatePrompt: StateFlow<CertificatePrompt?> = _certificatePrompt.asStateFlow()
 
     /** Label stock for auto-setup. Wrong size = the printer hunts for a gap and stalls. */
-    private val _setupStock = MutableStateFlow(MediaSize.LABEL_4X6)
+    private val _setupStock = MutableStateFlow(MediaSize.DEFAULT_LABEL)
     val setupStock: StateFlow<MediaSize> = _setupStock.asStateFlow()
 
     val savedPrinters: StateFlow<List<Printer>> = printerRepo.saved

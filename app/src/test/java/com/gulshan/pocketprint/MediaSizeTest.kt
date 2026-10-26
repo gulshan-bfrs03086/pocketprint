@@ -45,6 +45,7 @@ class MediaSizeTest {
             MediaSize.LABEL_100X75 to (100 to 75),
             MediaSize.LABEL_100X50 to (100 to 50),
             MediaSize.LABEL_100X25 to (100 to 25),
+            MediaSize.LABEL_75X75 to (75 to 75),
             MediaSize.LABEL_75X50 to (75 to 50),
             MediaSize.LABEL_60X40 to (60 to 40),
             MediaSize.LABEL_50X40 to (50 to 40),
