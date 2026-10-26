@@ -16,6 +16,8 @@ import java.io.ByteArrayOutputStream
 class Tspl(
     private val media: MediaSize = MediaSize.LABEL_4X6,
     private val dpi: Int = 203,
+    /** Send bitmaps as TSC's compressed command; see PrinterCapabilities.compressedBitmaps. */
+    private val compressBitmaps: Boolean = false,
 ) {
     private val out = ByteArrayOutputStream(8 * 1024)
 
@@ -138,8 +140,13 @@ class Tspl(
     fun line(x: Int, y: Int, width: Int, height: Int) = cmd("BAR $x,$y,$width,$height")
 
     /**
-     * BITMAP x,y,widthBytes,height,mode,<binary>. Mode 0 overwrites.
-     * The bitmap payload follows the newline-terminated header directly.
+     * Sends the image as BITMAP x,y,widthBytes,height,0,<binary> CR LF, one per
+     * rectangle that has ink in it (see [InkBlocks]), and nothing for the white.
+     *
+     * That means the image's white margin does not erase anything: it used to be
+     * one BITMAP that overwrote its whole rectangle, and a caller that drew TEXT
+     * or a BOX first and relied on that would now see them show through. Draw an
+     * image first, or keep it clear of other drawing.
      */
     fun image(x: Int, y: Int, bitmap: Bitmap, dither: Boolean = true) = apply {
         val maxWidth = media.dotsWide(dpi)
@@ -167,13 +174,55 @@ class Tspl(
         // TSPL prints a dot for a 0 bit, so invert our ink mask.
         for (i in packed.indices) packed[i] = packed[i].toInt().inv().toByte()
 
-        out.write("BITMAP $x,$y,$bytesPerRow,$h,0,".toByteArray(Charsets.US_ASCII))
-        out.write(packed)
-        out.write("\r\n".toByteArray(Charsets.US_ASCII))
+        // Only the rectangles that have ink in them are sent. The page used to
+        // go out whole - 45 KB for a 75 x 75 mm label - and a white byte costs
+        // as much to send as a black one; see InkBlocks for what that cost on a
+        // printer that takes in a few hundred bytes a second.
+        bitmap(x, y, packed, bytesPerRow, h)
         if (scaled !== bitmap) scaled.recycle()
     }
 
+    /**
+     * A page that is already packed, a 0 bit being a dot, sent as the commands
+     * [TsplBitmap] makes of it. [image] ends here; the test page calls it too.
+     */
+    fun bitmap(x: Int, y: Int, packed: ByteArray, widthBytes: Int, height: Int) = apply {
+        val commands = TsplBitmap.encode(packed, widthBytes, height, x, y, compressBitmaps)
+        out.write(commands)
+        com.gulshan.pocketprint.print.Diagnostics.record(
+            "TsplDiag",
+            "sending ${commands.size} bytes of bitmap commands${if (compressBitmaps) " (compressed)" else ""} instead of " +
+                "${packed.size} (${"%.1f".format(commands.size * 100.0 / packed.size)}%)",
+        )
+    }
+
+    /**
+     * A 96 x 48 dot picture to print on a test label: a frame, a diagonal, and a
+     * solid square in the top left. It is lopsided on purpose, so a picture that
+     * came out mirrored, upside down or inverted - which is what a printer that
+     * misreads the compressed command does - cannot be mistaken for a good one.
+     */
+    fun testPicture(x: Int, y: Int) = apply {
+        val widthBytes = TEST_PICTURE_BYTES
+        val packed = ByteArray(widthBytes * TEST_PICTURE_HEIGHT) { 0xFF.toByte() }
+        fun dot(px: Int, py: Int) {
+            val at = py * widthBytes + px / 8
+            packed[at] = (packed[at].toInt() and (0x80 shr (px % 8)).inv()).toByte()
+        }
+        val width = widthBytes * 8
+        for (px in 0 until width) for (t in 0..1) { dot(px, t); dot(px, TEST_PICTURE_HEIGHT - 1 - t) }
+        for (py in 0 until TEST_PICTURE_HEIGHT) for (t in 0..1) { dot(t, py); dot(width - 1 - t, py) }
+        for (py in 6 until 22) for (px in 6 until 22) dot(px, py)
+        for (i in 0 until TEST_PICTURE_HEIGHT - 4) for (t in 0..1) dot(2 + i * (width - 4) / (TEST_PICTURE_HEIGHT - 4) + t, 2 + i)
+        bitmap(x, y, packed, widthBytes, TEST_PICTURE_HEIGHT)
+    }
+
     fun print(sets: Int = 1, copies: Int = 1) = cmd("PRINT $sets,$copies")
+
+    companion object {
+        const val TEST_PICTURE_BYTES = 12
+        const val TEST_PICTURE_HEIGHT = 48
+    }
 
     fun build(): ByteArray = out.toByteArray()
 

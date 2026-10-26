@@ -367,8 +367,8 @@ class PrinterAutoSetup(private val context: Context) {
     private fun defaultMediaFor(language: PrintLanguage, name: String): MediaSize = when {
         language == PrintLanguage.ESC_POS ->
             if (name.contains("58")) MediaSize.RECEIPT_58 else MediaSize.RECEIPT_80
-        // 4-inch stock is the common case for TSPL and ZPL desktop units.
-        else -> MediaSize.LABEL_4X6
+        // Same assumption the setup screen starts its stock picker on.
+        else -> MediaSize.DEFAULT_LABEL
     }
 
     // The whole catalogue, not a hand-picked three. These become the printer's

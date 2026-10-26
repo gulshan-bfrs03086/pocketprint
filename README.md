@@ -308,6 +308,24 @@ One switch, once, under **Settings → Connected devices → Printing → Pocket
 button in the app that takes you straight there, and the app tells you whether the switch is
 already on — or says plainly that this version of Android will not let it find out.
 
+With it on, the print dialog in any app lists **Add printer using PocketPrint**. That opens the
+app on the Print tab with the setup card scrolled to the top: the label stock to confirm, and
+the button that starts setup. It only shows the card. Setup feeds and prints a test label, and
+a stock that does not match the roll loaded makes the printer stop with a paper fault, so it
+starts when the person has seen the stock and taps the button, not when they tap somebody
+else's dialog. The entry is a second name for the main activity (`AddPrintersEntry`), which is
+how the app tells it from the launcher; `AddPrintersEntryTest` keeps the manifest,
+`print_service.xml` and the code agreeing on it.
+
+If another app's print dialog, or Settings → Printing → PocketPrint, sits on "Searching for
+printers" and never lists a printer you can see saved in PocketPrint, switch the PocketPrint print
+service **off and on** there. That has fixed it every time it was seen: once, on a test device,
+after the app had been reinstalled over itself and swiped away, when the system was left holding a
+dead connection to the service and never started it again. It has not been reproduced since (on
+the same device: reinstalling while idle, reinstalling while the print dialog was connected, and
+swiping the app out of recents all reconnected on their own), so there is no workaround in the app
+for it, only this.
+
 PocketPrint asks for nothing on first launch. Each permission is requested at the moment it is
 needed: Bluetooth when you set up a printer, notifications when you print. If one has been
 refused to the point where Android stops asking, the app says so and offers the way back.
@@ -414,8 +432,10 @@ that one test skips, saying so.
 The rendering path is verified independently of any printer. Debug builds log the dark pixels
 per rendered page and the ink coverage of the packed bitmap, and save every generated command
 stream under `getExternalFilesDir` for byte-level inspection. On a 4x6 label at 203 dpi a
-US Letter page renders to 812 x 1051 dots at 30.02% ink and emits exactly 107,357 bytes of
-TSPL. That makes it quick to tell a rendering bug from a printer that is not marking.
+US Letter page renders to 812 x 1051 dots at 30.02% ink, which as one whole bitmap was exactly
+107,357 bytes of TSPL; the byte count is now smaller and depends on how much of the page is
+blank, since only blocks with ink are sent (see `InkBlocks`). The ink percentage is the number
+that makes it quick to tell a rendering bug from a printer that is not marking.
 
 **200 unit tests** cover the IPP codec (request framing, multi-value and resolution decoding,
 unknown-tag tolerance), PWG raster round trips including band-boundary equivalence, PWG media

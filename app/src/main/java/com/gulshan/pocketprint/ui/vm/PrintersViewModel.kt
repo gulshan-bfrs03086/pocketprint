@@ -147,8 +147,17 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
     val certificatePrompt: StateFlow<CertificatePrompt?> = _certificatePrompt.asStateFlow()
 
     /** Label stock for auto-setup. Wrong size = the printer hunts for a gap and stalls. */
-    private val _setupStock = MutableStateFlow(MediaSize.LABEL_4X6)
+    private val _setupStock = MutableStateFlow(MediaSize.DEFAULT_LABEL)
     val setupStock: StateFlow<MediaSize> = _setupStock.asStateFlow()
+
+    /**
+     * Raised when the system's "Add printer using PocketPrint" entry opens the
+     * app (see AddPrintersEntry). AppNav answers by going to the Print tab and
+     * the Print tab by showing the setup card; it is the card, not the
+     * ViewModel, that starts anything, because setup configures the printer for
+     * a stock the person has to confirm first.
+     */
+    val addPrinterRequest = OneShotRequest()
 
     val savedPrinters: StateFlow<List<Printer>> = printerRepo.saved
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -344,13 +353,26 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
         val language = caps.languages.firstOrNull() ?: PrintLanguage.ESC_POS
 
         val bytes = when (language) {
-            PrintLanguage.TSPL -> Tspl(media, dpi).apply {
+            PrintLanguage.TSPL -> Tspl(media, dpi, caps.compressedBitmaps).apply {
                 setup(printer.stock)
                 text(20, 20, "POCKETPRINT TEST", font = "3")
                 text(20, 70, "TSPL  ${media.label}", font = "2")
                 text(20, 105, "${dpi} dpi  ${width} dots", font = "2")
                 barcode(20, 145, "POCKETPRINT", height = 60)
                 box(10, 10, media.dotsWide(dpi) - 10, media.dotsHigh(dpi) - 10, 3)
+                if (caps.compressedBitmaps) {
+                    // Sent through the compressed command, so a printer that does
+                    // not decode it shows it here, on a test label, and not on
+                    // somebody's real one. A framed box with a diagonal and a
+                    // solid square at its top left means it works.
+                    if (media.dotsHigh(dpi) >= 320) {
+                        text(20, 225, "COMPRESSED PICTURE:", font = "2")
+                        testPicture(20, 255)
+                    } else {
+                        // A short label has no room under the barcode: top right.
+                        testPicture((media.dotsWide(dpi) - 96 - 20).coerceAtLeast(20), 20)
+                    }
+                }
                 print(sets = 1, copies = 1)
             }.build()
 

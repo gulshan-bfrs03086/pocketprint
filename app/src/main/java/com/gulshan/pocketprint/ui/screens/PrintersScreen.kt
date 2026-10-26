@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -157,6 +158,31 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
     val hibernation = remember(systemEpoch) { AppHealth.hibernation(context) }
     val setupStock by viewModel.setupStock.collectAsStateWithLifecycle()
 
+    // Everything above the setup card is conditional, so where the card sits in
+    // the list depends on which of these are showing. Named once, and used both
+    // to decide what is drawn and to count what is above the card, so the two
+    // cannot drift apart when a banner is added.
+    val showHibernationWarning = hibernation == AppHealth.Hibernation.WILL_HIBERNATE
+    val showLocalNetworkWarning = localNetworkStatus == PermissionStatus.BLOCKED
+    val showBluetoothWarning = bluetoothStatus == PermissionStatus.BLOCKED
+    val itemsAboveSetup = storageProblems.size +
+        listOf(showHibernationWarning, showLocalNetworkWarning, showBluetoothWarning).count { it }
+
+    // The system's "Add printer using PocketPrint" entry asks for the setup
+    // card to be put in front of the person. It only shows it: setup picks a
+    // label stock and then feeds and prints a test label, and a stock that does
+    // not match the roll loaded makes the printer feed past the gap and stop
+    // with a paper fault - so the person starts it, after seeing the stock.
+    // Consumed once the scroll has finished, not when it starts: one that is
+    // cut short (the tab left) is still owed, and is answered the next time.
+    val listState = rememberLazyListState()
+    val addPrinterRequested by viewModel.addPrinterRequest.pending.collectAsStateWithLifecycle()
+    LaunchedEffect(addPrinterRequested) {
+        if (!addPrinterRequested) return@LaunchedEffect
+        listState.animateScrollToItem(itemsAboveSetup)
+        viewModel.addPrinterRequest.consume()
+    }
+
     val pickDocument = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument(),
     ) { uri -> uri?.let { viewModel.selectDocument(it) } }
@@ -190,6 +216,7 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
     LaunchedEffect(Unit) { viewModel.refreshLocalPrinters() }
 
     LazyColumn(
+        state = listState,
         modifier = Modifier
             .fillMaxSize()
             .padding(horizontal = 16.dp),
@@ -202,7 +229,7 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
         // Nobody can be warned about this when it happens, because when it
         // happens they are not here - the whole point of the app is that it
         // stops being opened. So it is said whenever they do open it.
-        if (hibernation == AppHealth.Hibernation.WILL_HIBERNATE) {
+        if (showHibernationWarning) {
             item {
                 Column(Modifier.padding(top = 16.dp)) {
                     WarningBanner(
@@ -221,7 +248,7 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
         // weight until the platform starts enforcing it. Which is exactly when
         // somebody needs to be told, because the failure has no other symptom -
         // printers stop being found and jobs time out as if switched off.
-        if (localNetworkStatus == PermissionStatus.BLOCKED) {
+        if (showLocalNetworkWarning) {
             item {
                 Column(Modifier.padding(top = 16.dp)) {
                     WarningBanner(stringResource(R.string.local_network_blocked_warning))
@@ -236,7 +263,7 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
         // The state the old first-frame request left people in, with no way to
         // find out and no way out. Android will not ask again after two
         // refusals; app settings is the only route.
-        if (bluetoothStatus == PermissionStatus.BLOCKED) {
+        if (showBluetoothWarning) {
             item {
                 Column(Modifier.padding(top = 16.dp)) {
                     WarningBanner(

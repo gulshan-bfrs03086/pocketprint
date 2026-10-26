@@ -12,6 +12,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.Switch
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -70,6 +71,7 @@ fun PrinterSettingsDialog(
         mutableStateOf((printer.capabilities.rasterWidthDots ?: 576).toString())
     }
     var exposeToSystem by rememberSaveable { mutableStateOf(printer.exposeToSystem) }
+    var compressedBitmaps by rememberSaveable { mutableStateOf(printer.capabilities.compressedBitmaps) }
 
     // Sizes the user has typed in, kept alongside the built-in list. 50x30 and
     // 60x40 are two of the most common rolls on the market and neither is one
@@ -108,6 +110,9 @@ fun PrinterSettingsDialog(
                 .distinctBy { it.id },
             resolutionsDpi = listOf(dpi),
             rasterWidthDots = widthDots.toIntOrNull()?.takeIf { it > 0 },
+            // Only meaningful for TSPL; cleared when the language is changed
+            // away from it so it cannot come back on by surprise.
+            compressedBitmaps = compressedBitmaps && language == PrintLanguage.TSPL,
         ),
     )
 
@@ -248,6 +253,26 @@ fun PrinterSettingsDialog(
                     )
 
                     Stepper(stringResource(R.string.printer_speed), speed, 1..12) { speed = it }
+
+                    if (language == PrintLanguage.TSPL) {
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            Text(
+                                stringResource(R.string.printer_compress_bitmaps),
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Switch(checked = compressedBitmaps, onCheckedChange = { compressedBitmaps = it })
+                        }
+                        Text(
+                            stringResource(R.string.printer_compress_bitmaps_help),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
 
                     TextButton(onClick = { onCalibrate(edited()) }) {
                         Text(stringResource(R.string.printer_calibrate))

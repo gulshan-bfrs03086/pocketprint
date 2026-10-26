@@ -11,7 +11,7 @@ package com.gulshan.pocketprint.model
  * stuck at exactly the point they had already done the work to get unstuck.
  *
  * Their own sizes go first. They are what this printer is loaded with, which
- * makes them the likeliest choice, and at the far end of a row now fourteen
+ * makes them the likeliest choice, and at the far end of a row now fifteen
  * catalogue sizes long they would need a scroll to find. It costs the standard
  * sizes a shifted position for someone with a custom one, and that someone
  * could not pick it at all before.
