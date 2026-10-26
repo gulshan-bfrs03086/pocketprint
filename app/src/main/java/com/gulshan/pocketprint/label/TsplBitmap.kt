@@ -16,24 +16,81 @@ object TsplBitmap {
      * @param packed the page in TSPL polarity (0 bit = dot), [widthBytes] per row.
      * @param x where the page's left edge sits on the label, in dots.
      * @param y where its top edge sits, in dots.
+     * @param compress send each block as TSC's LZSS-compressed bitmap command
+     *   instead of plain BITMAP, wherever that is smaller. Only for a printer
+     *   that decodes it (see PrinterCapabilities.compressedBitmaps).
      * @return the commands; empty for a page with no ink, which prints a blank
      *   label just as the full white bitmap did, for none of the bytes.
      */
-    fun encode(packed: ByteArray, widthBytes: Int, height: Int, x: Int, y: Int): ByteArray {
+    fun encode(
+        packed: ByteArray,
+        widthBytes: Int,
+        height: Int,
+        x: Int,
+        y: Int,
+        compress: Boolean = false,
+    ): ByteArray {
         val blocks = InkBlocks.find(packed, widthBytes, height)
         val out = ByteArrayOutputStream(blocks.sumOf { it.widthBytes * it.height + InkBlocks.COMMAND_COST })
 
         for (block in blocks) {
-            // BITMAP x,y,widthBytes,height,mode,<binary>. x is in dots, so a
-            // block that starts at byte column 3 starts 24 dots in. Mode 0
-            // overwrites, which is right: blocks never overlap.
-            val header = "BITMAP ${x + block.xByte * 8},${y + block.y},${block.widthBytes},${block.height},0,"
-            out.write(header.toByteArray(Charsets.US_ASCII))
-            for (row in block.y until block.y + block.height) {
-                out.write(packed, row * widthBytes + block.xByte, block.widthBytes)
+            // x is in dots, so a block that starts at byte column 3 starts 24
+            // dots in.
+            val xDots = x + block.xByte * 8
+            val yDots = y + block.y
+            val raw = ByteArray(block.widthBytes * block.height)
+            for (row in 0 until block.height) {
+                System.arraycopy(
+                    packed, (block.y + row) * widthBytes + block.xByte,
+                    raw, row * block.widthBytes, block.widthBytes,
+                )
             }
-            out.write("\r\n".toByteArray(Charsets.US_ASCII))
+
+            val plain = "BITMAP $xDots,$yDots,${block.widthBytes},${block.height},0,"
+                .toByteArray(Charsets.US_ASCII)
+            val squeezed = if (compress) Lzss.encode(raw) else null
+
+            if (squeezed != null && COMPRESSED_HEADER + squeezed.size < plain.size + raw.size) {
+                out.write(compressedHeader(xDots, yDots, block.widthBytes, block.height))
+                out.write(squeezed)
+            } else {
+                // BITMAP x,y,widthBytes,height,mode,<binary>. Mode 0 overwrites,
+                // which is right: blocks never overlap. Also what a block that
+                // does not compress, such as a photograph, falls back to.
+                out.write(plain)
+                out.write(raw)
+            }
+            out.write(CRLF)
         }
         return out.toByteArray()
+    }
+
+    private val CRLF = "\r\n".toByteArray(Charsets.US_ASCII)
+
+    /** The 16 bytes in front of compressed data: see [compressedHeader]. */
+    private const val COMPRESSED_HEADER = 16
+
+    /**
+     * TSC's compressed bitmap command, as the official utility sends it: `!S`,
+     * then x, y, width in bytes and height as 16-bit little-endian numbers,
+     * zero-padded to 16 bytes, then the LZSS data, then CR LF. There is no
+     * length: the printer decodes until it has width x height bytes.
+     *
+     * The pixels are in the same polarity as BITMAP - a 0 bit is a dot - so the
+     * packed page goes in unchanged.
+     */
+    private fun compressedHeader(xDots: Int, yDots: Int, widthBytes: Int, height: Int): ByteArray {
+        val header = ByteArray(COMPRESSED_HEADER)
+        header[0] = '!'.code.toByte()
+        header[1] = 'S'.code.toByte()
+        fun put(at: Int, value: Int) {
+            header[at] = (value and 0xFF).toByte()
+            header[at + 1] = ((value shr 8) and 0xFF).toByte()
+        }
+        put(2, xDots)
+        put(4, yDots)
+        put(6, widthBytes)
+        put(8, height)
+        return header
     }
 }

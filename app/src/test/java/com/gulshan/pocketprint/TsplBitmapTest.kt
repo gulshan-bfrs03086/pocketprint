@@ -46,23 +46,42 @@ class TsplBitmapTest {
         val canvas = ByteArray(widthBytes * height) { white }
         var p = 0
         while (p < commands.size) {
-            val prefix = "BITMAP "
-            assertEquals(prefix, String(commands, p, prefix.length, Charsets.US_ASCII))
-            p += prefix.length
-            val fields = IntArray(5)
-            for (f in 0 until 5) {
-                val start = p
-                while (commands[p] != ','.code.toByte()) p++
-                fields[f] = String(commands, start, p - start, Charsets.US_ASCII).toInt()
-                p++
+            val xDots: Int
+            val yDots: Int
+            val wBytes: Int
+            val rows: Int
+            val data: ByteArray
+            if (commands[p] == '!'.code.toByte()) {
+                // TSC's compressed bitmap: "!S", four 16-bit little-endian
+                // fields, padding to 16 bytes, LZSS data, CR LF.
+                assertEquals('S'.code.toByte(), commands[p + 1])
+                fun le(at: Int) = (commands[p + at].toInt() and 0xFF) or ((commands[p + at + 1].toInt() and 0xFF) shl 8)
+                xDots = le(2); yDots = le(4); wBytes = le(6); rows = le(8)
+                for (pad in 10 until 16) assertEquals("header padding", 0, commands[p + pad].toInt())
+                val decoded = LzssDecoder.decode(commands, p + 16, wBytes * rows)
+                data = decoded.bytes
+                p = decoded.end
+            } else {
+                val prefix = "BITMAP "
+                assertEquals(prefix, String(commands, p, prefix.length, Charsets.US_ASCII))
+                p += prefix.length
+                val fields = IntArray(5)
+                for (f in 0 until 5) {
+                    val start = p
+                    while (commands[p] != ','.code.toByte()) p++
+                    fields[f] = String(commands, start, p - start, Charsets.US_ASCII).toInt()
+                    p++
+                }
+                val (xd, yd, wb, rs, mode) = fields
+                assertEquals("mode 0 overwrites", 0, mode)
+                xDots = xd; yDots = yd; wBytes = wb; rows = rs
+                data = commands.copyOfRange(p, p + wb * rs)
+                p += wb * rs
             }
-            val (xDots, yDots, wBytes, rows, mode) = fields
-            assertEquals("mode 0 overwrites", 0, mode)
             assertEquals("a block must start on a byte boundary of the page", 0, (xDots - x) % 8)
             val xByte = (xDots - x) / 8
             for (r in 0 until rows) {
-                System.arraycopy(commands, p, canvas, (yDots - y + r) * widthBytes + xByte, wBytes)
-                p += wBytes
+                System.arraycopy(data, r * wBytes, canvas, (yDots - y + r) * widthBytes + xByte, wBytes)
             }
             assertEquals('\r'.code.toByte(), commands[p])
             assertEquals('\n'.code.toByte(), commands[p + 1])
@@ -71,8 +90,11 @@ class TsplBitmapTest {
         return canvas
     }
 
-    private fun redrawOf(page: Page, x: Int = 0, y: Int = 0) =
-        redraw(TsplBitmap.encode(page.bytes, page.widthBytes, page.height, x, y), page.widthBytes, page.height, x, y)
+    private fun redrawOf(page: Page, x: Int = 0, y: Int = 0, compress: Boolean = false) =
+        redraw(
+            TsplBitmap.encode(page.bytes, page.widthBytes, page.height, x, y, compress),
+            page.widthBytes, page.height, x, y,
+        )
 
     // -- nothing is lost -------------------------------------------------------
 
@@ -271,6 +293,96 @@ class TsplBitmapTest {
         assertArrayEquals(page.bytes, redrawOf(page))
     }
 
+    // -- frames ---------------------------------------------------------------------
+
+    /** A closed border: rules along all four edges of the page. */
+    private fun Page.frame(thickRows: Int, thickBytes: Int): Page {
+        ink(0, 0, widthBytes, thickRows)
+        ink(0, height - thickRows, widthBytes, thickRows)
+        ink(0, 0, thickBytes, height)
+        ink(widthBytes - thickBytes, 0, thickBytes, height)
+        return this
+    }
+
+    @Test
+    fun `a closed frame round a barcode no longer sends the whole page`() {
+        // The case blank-gap cutting alone could not do anything with: a rule
+        // across the top joined to one down the side is ink in every row and
+        // every column, so there is no gap to cut at. Measured before peeling:
+        // this page was one block, 100 % of the full bitmap.
+        val page = Page(75, 599).ink(16, 230, 44, 115).ink(27, 345, 22, 18).frame(3, 1)
+
+        val full = 75 * 599
+        val commands = TsplBitmap.encode(page.bytes, 75, 599, 0, 0)
+
+        assertArrayEquals(page.bytes, redraw(commands, 75, 599, 0, 0))
+        assertTrue("${commands.size} of $full", commands.size < full * 20 / 100)
+    }
+
+    @Test
+    fun `a frame round a card of text lines and a barcode leaves the card cut into its parts`() {
+        val page = Page(75, 599)
+            .ink(9, 65, 28, 25).ink(9, 125, 56, 90).ink(19, 232, 36, 25)
+            .ink(9, 296, 12, 18).ink(38, 296, 27, 22)
+            .frame(2, 1)
+
+        val full = 75 * 599
+        val commands = TsplBitmap.encode(page.bytes, 75, 599, 0, 0)
+
+        assertArrayEquals(page.bytes, redraw(commands, 75, 599, 0, 0))
+        assertTrue("${commands.size} of $full", commands.size < full * 30 / 100)
+    }
+
+    @Test
+    fun `a frame inside a frame is peeled twice`() {
+        val page = Page(75, 599).ink(20, 250, 30, 60).frame(2, 1)
+        // An inner border, well inside the outer one.
+        page.ink(8, 40, 59, 2).ink(8, 520, 59, 2).ink(8, 40, 1, 482).ink(66, 40, 1, 482)
+
+        val full = 75 * 599
+        val commands = TsplBitmap.encode(page.bytes, 75, 599, 0, 0)
+
+        assertArrayEquals(page.bytes, redraw(commands, 75, 599, 0, 0))
+        assertTrue("${commands.size} of $full", commands.size < full * 25 / 100)
+    }
+
+    @Test
+    fun `a frame round dense ink is left as one block, because peeling it saves nothing`() {
+        // Every row here is a "rule", so the peel finds strips - and then finds
+        // an interior with nothing to cut, and the strips are extra commands.
+        // It has to refuse: never more than one box.
+        val page = Page(75, 100).ink(0, 0, 75, 100)
+
+        assertEquals(listOf(InkBlock(0, 0, 75, 100)), InkBlocks.find(page.bytes, 75, 100))
+    }
+
+    @Test
+    fun `pages with frames of every thickness are redrawn exactly, with no block overlapping another`() {
+        val random = Random(31)
+        repeat(300) { round ->
+            val widthBytes = random.nextInt(3, 81)
+            val height = random.nextInt(3, 130)
+            val page = Page(widthBytes, height)
+            repeat(random.nextInt(0, 6)) {
+                val w = random.nextInt(1, widthBytes + 1)
+                val h = random.nextInt(1, height + 1)
+                page.ink(random.nextInt(0, widthBytes - w + 1), random.nextInt(0, height - h + 1), w, h, pattern = random.nextInt(0, 255))
+            }
+            if (random.nextBoolean()) page.frame(random.nextInt(1, minOf(5, height / 2 + 1)), random.nextInt(1, minOf(3, widthBytes / 2 + 1)))
+
+            assertArrayEquals("page $round (${widthBytes}x$height)", page.bytes, redrawOf(page))
+            assertArrayEquals("page $round compressed", page.bytes, redrawOf(page, compress = true))
+
+            val blocks = InkBlocks.find(page.bytes, widthBytes, height)
+            for (i in blocks.indices) for (j in i + 1 until blocks.size) {
+                val a = blocks[i]; val b = blocks[j]
+                val apart = a.xByte + a.widthBytes <= b.xByte || b.xByte + b.widthBytes <= a.xByte ||
+                    a.y + a.height <= b.y || b.y + b.height <= a.y
+                assertTrue("page $round: overlap $a and $b", apart)
+            }
+        }
+    }
+
     // -- the edges of a box -------------------------------------------------------
 
     @Test
@@ -322,6 +434,109 @@ class TsplBitmapTest {
 
         assertEquals(listOf(tightBox(page)), blocks)
         assertArrayEquals(page.bytes, redrawOf(page))
+    }
+
+    // -- compressed ---------------------------------------------------------------
+
+    @Test
+    fun `compressed, what the printer draws is still exactly the page that went in`() {
+        // The same property as above with the compressed command switched on:
+        // random pages of every shape, redrawn by a decoder that knows nothing
+        // about the encoder.
+        val random = Random(20261027)
+        repeat(300) { round ->
+            val widthBytes = random.nextInt(1, 81)
+            val height = random.nextInt(1, 130)
+            val page = Page(widthBytes, height)
+            repeat(random.nextInt(0, 9)) {
+                val w = random.nextInt(1, widthBytes + 1)
+                val h = random.nextInt(1, height + 1)
+                page.ink(
+                    random.nextInt(0, widthBytes - w + 1), random.nextInt(0, height - h + 1), w, h,
+                    pattern = random.nextInt(0, 255),
+                )
+            }
+            assertArrayEquals(
+                "page $round (${widthBytes}x$height) was altered",
+                page.bytes, redrawOf(page, compress = true),
+            )
+        }
+    }
+
+    @Test
+    fun `the compressed command is laid out as the official utility sends it`() {
+        // "!S", then x, y, width in bytes and height as 16-bit little-endian,
+        // zero-padded to 16 bytes. x and y here are above 255, so a byte-order
+        // slip shows.
+        val page = Page(60, 400).ink(40, 300, 6, 20)   // x = 40 bytes = 320 dots; y = 300
+
+        val commands = TsplBitmap.encode(page.bytes, 60, 400, x = 0, y = 0, compress = true)
+
+        assertEquals('!'.code.toByte(), commands[0])
+        assertEquals('S'.code.toByte(), commands[1])
+        fun le(at: Int) = (commands[at].toInt() and 0xFF) or ((commands[at + 1].toInt() and 0xFF) shl 8)
+        assertEquals("x in dots", 320, le(2))
+        assertEquals("y", 300, le(4))
+        assertEquals("width in bytes", 6, le(6))
+        assertEquals("height", 20, le(8))
+        for (pad in 10 until 16) assertEquals(0, commands[pad].toInt())
+        assertEquals('\r'.code.toByte(), commands[commands.size - 2])
+        assertEquals('\n'.code.toByte(), commands[commands.size - 1])
+    }
+
+    @Test
+    fun `a block that does not shrink is sent as plain BITMAP even with compression on`() {
+        // Noise cannot be compressed, and the compressed form would be bigger.
+        // The plain command is understood by every TSPL printer, so it is the
+        // one to fall back to - and a printer in a mixed stream decodes both.
+        val random = Random(8)
+        val page = Page(40, 60)
+        for (i in page.bytes.indices) page.bytes[i] = random.nextInt(256).toByte()
+
+        val commands = TsplBitmap.encode(page.bytes, 40, 60, 0, 0, compress = true)
+
+        assertTrue(String(commands, 0, 7, Charsets.US_ASCII) == "BITMAP ")
+        assertArrayEquals(page.bytes, redraw(commands, 40, 60, 0, 0))
+    }
+
+    @Test
+    fun `compression off sends no compressed command at all`() {
+        // The switch must mean something: a printer that does not understand the
+        // command reads it as noise.
+        val page = Page(75, 599).ink(16, 230, 44, 115)
+
+        val commands = TsplBitmap.encode(page.bytes, 75, 599, 0, 0, compress = false)
+
+        assertEquals("BITMAP ", String(commands, 0, 7, Charsets.US_ASCII))
+        assertArrayEquals(page.bytes, redraw(commands, 75, 599, 0, 0))
+    }
+
+    @Test
+    fun `compressed, a bin label is a few percent of the full page`() {
+        val page = Page(75, 599).ink(16, 230, 44, 115).ink(27, 345, 22, 18)
+
+        val full = 75 * 599
+        val commands = TsplBitmap.encode(page.bytes, 75, 599, 0, 0, compress = true)
+        val plain = TsplBitmap.encode(page.bytes, 75, 599, 0, 0, compress = false)
+
+        assertArrayEquals(page.bytes, redraw(commands, 75, 599, 0, 0))
+        assertTrue("${commands.size} of $full", commands.size < full * 8 / 100)
+        assertTrue("compressed ${commands.size} should beat plain ${plain.size}", commands.size < plain.size)
+    }
+
+    @Test
+    fun `compressed, a card with a closed frame is no longer the whole page`() {
+        // The case blank-gap cutting cannot help with: a frame round the whole
+        // card leaves no gap to cut at. Compression does not need one.
+        val page = Page(75, 599)
+            .ink(0, 0, 75, 2).ink(0, 597, 75, 2).ink(0, 0, 1, 599).ink(74, 0, 1, 599)
+            .ink(9, 65, 28, 25).ink(9, 125, 56, 90).ink(19, 232, 36, 25)
+
+        val full = 75 * 599
+        val commands = TsplBitmap.encode(page.bytes, 75, 599, 0, 0, compress = true)
+
+        assertArrayEquals(page.bytes, redraw(commands, 75, 599, 0, 0))
+        assertTrue("${commands.size} of $full", commands.size < full * 35 / 100)
     }
 
     // -- helpers ----------------------------------------------------------------

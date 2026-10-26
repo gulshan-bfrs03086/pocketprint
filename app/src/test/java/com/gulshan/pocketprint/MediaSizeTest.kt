@@ -84,6 +84,20 @@ class MediaSizeTest {
         assertEquals(200, MediaSize.LABEL_50X25.dotsHigh(203))
     }
 
+    @Test
+    fun `3 x 3 in is 76 point 2 millimetres, a different roll from 75 x 75 mm`() {
+        // The TSC sample label is 216 pt = 3.00 in. 1.2 mm per edge is the kind
+        // of "rounding" a gap-sensing printer turns into a media fault.
+        assertEquals(3 * 25_400, MediaSize.LABEL_3X3.widthMicrons)
+        assertEquals(3 * 25_400, MediaSize.LABEL_3X3.heightMicrons)
+        assertEquals("76.2 mm", "%.1f mm".format(MediaSize.LABEL_3X3.widthMm))
+
+        assertTrue(MediaSize.LABEL_3X3.id != MediaSize.LABEL_75X75.id)
+        assertTrue(MediaSize.LABEL_3X3 in MediaSize.LABEL_ROLLS)
+        assertTrue(MediaSize.LABEL_75X75 in MediaSize.LABEL_ROLLS)
+        assertEquals(75_000, MediaSize.LABEL_75X75.widthMicrons)
+    }
+
     /**
      * Two names for one size is how a picker stops meaning anything - the user
      * picks one, it does not match the printer's stored id, and nothing says

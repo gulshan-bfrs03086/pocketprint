@@ -289,7 +289,7 @@ class RenderPipeline(
         PdfRasterizer.forEachPage(
             pdf.file, dpi = dpi, targetWidthPx = width, pageRange = options.pageRange,
         ) { _, bitmap ->
-            val builder = Tspl(media, dpi)
+            val builder = Tspl(media, dpi, printer.capabilities.compressedBitmaps)
                 // From the printer, not the job: this describes the roll that
                 // is physically loaded and how hard the head has to burn for
                 // it, neither of which changes with the document.

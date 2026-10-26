@@ -30,14 +30,15 @@ data class InkBlock(val xByte: Int, val y: Int, val widthBytes: Int, val height:
  * there, and recurse on both halves. A text line, a barcode and an open border
  * end up as separate rectangles, with the white between them never sent.
  *
- * ## Known limit
+ * ## Frames
  *
- * A cut needs a blank gap that runs the whole width or height of the box. A
- * closed frame - a rule across the top joined to one down the side - or table
- * gridlines leave no such gap, so a page with one is sent as a single block, as
- * it was before. That is not worse than before, only no better; compressing the
- * blocks is what helps there (see the printer measurements in the project
- * notes).
+ * A cut needs a blank gap that runs the whole width or height of the box, and a
+ * closed frame is ink across all of it. So at a box with no gap worth cutting
+ * the first few rows and columns along its edges are peeled off as thin strips
+ * if they are rules, and the inside is cut as usual ([peel]). Rules that cross
+ * the middle of a box - the inner lines of a table - are not peeled, and a page
+ * with those is still sent as one block, as before: no worse, only no better.
+ * Compressing the blocks (see [Lzss]) is what helps there.
  *
  * Every BITMAP command has a header, so a cut is only made when the blank bytes
  * it removes outweigh the header it adds ([COMMAND_COST]). That makes the result
@@ -69,6 +70,15 @@ object InkBlocks {
     /** What a blank byte looks like in TSPL's polarity, where a 0 bit is a dot. */
     private const val BLANK: Byte = 0xFF.toByte()
 
+    /**
+     * A thin rule along the edge of a box is peeled off when it is this many rows
+     * (or byte columns) thick at most, and this much of the box's width (or
+     * height) is ink along it. See [peel].
+     */
+    private const val MAX_RULE_ROWS = 4
+    private const val MAX_RULE_COLUMNS = 2
+    private const val RULE_COVERAGE = 0.6
+
     /** Blank gaps tried in turn, smallest first: [rows, bytes]. */
     private val GAP_LADDER = listOf(2 to 2, 4 to 4, 8 to 8, 16 to 16)
 
@@ -88,7 +98,7 @@ object InkBlocks {
         val whole = page.tight(0, 0, widthBytes, height) ?: return emptyList()
 
         for ((gapRows, gapBytes) in GAP_LADDER) {
-            val blocks = cut(page, whole, gapRows, gapBytes)
+            val blocks = solve(page, whole, gapRows, gapBytes)
             if (blocks.size <= MAX_BLOCKS) return sorted(blocks)
         }
         // Still too many at the widest gap: one box around everything.
@@ -131,12 +141,12 @@ object InkBlocks {
         }
     }
 
-    private fun cut(page: Page, whole: Box, gapRows: Int, gapBytes: Int): List<InkBlock> {
+    private fun solve(page: Page, start: Box, gapRows: Int, gapBytes: Int): List<InkBlock> {
         val blocks = mutableListOf<InkBlock>()
         // An explicit stack: depth is bounded by the number of cuts, but the
         // page is the caller's and this runs on a phone.
         val pending = ArrayDeque<Box>()
-        pending.add(whole)
+        pending.add(start)
 
         while (pending.isNotEmpty()) {
             val box = pending.removeLast()
@@ -156,7 +166,9 @@ object InkBlocks {
             val best = maxOf(rowSaving, colSaving)
 
             if (best <= COMMAND_COST) {
-                blocks += box.toBlock()
+                // No blank gap worth cutting at. A rule round the edge is the one
+                // thing that hides one, so try taking it off first.
+                blocks += peel(page, box, gapRows, gapBytes) ?: listOf(box.toBlock())
                 continue
             }
 
@@ -182,6 +194,57 @@ object InkBlocks {
         }
         return blocks
     }
+
+    /**
+     * Takes a frame off a box so what is inside it can be cut.
+     *
+     * A blank gap has to run the whole width or height of a box, and a rule
+     * along the top joined to one down the side - a closed border, or the outer
+     * line of a table - is ink across every column and every row, so no gap
+     * exists and the page went out as one block. The rule is thin, though: the
+     * first few rows and columns at the box's edges. Those are sent as strips of
+     * their own, and the interior, which has the blank gaps the frame was
+     * hiding, is cut as usual - and may itself be framed.
+     *
+     * It is only done when it is cheaper: the strips cost commands, and an
+     * interior with nothing to cut costs what the box did. Returning null means
+     * "leave it as one block".
+     */
+    private fun peel(page: Page, box: Box, gapRows: Int, gapBytes: Int): List<InkBlock>? {
+        fun rowIsRule(y: Int) = (box.x0 until box.x1).count { page.inked(it, y) } >= box.width * RULE_COVERAGE
+        fun columnIsRule(x: Int) = (box.y0 until box.y1).count { page.inked(x, it) } >= box.height * RULE_COVERAGE
+
+        // Never peel the whole box away: leave at least one row and column of interior.
+        val maxRows = minOf(MAX_RULE_ROWS, (box.height - 1) / 2)
+        val maxColumns = minOf(MAX_RULE_COLUMNS, (box.width - 1) / 2)
+
+        var top = 0
+        while (top < maxRows && rowIsRule(box.y0 + top)) top++
+        var bottom = 0
+        while (bottom < maxRows && rowIsRule(box.y1 - 1 - bottom)) bottom++
+        var left = 0
+        while (left < maxColumns && columnIsRule(box.x0 + left)) left++
+        var right = 0
+        while (right < maxColumns && columnIsRule(box.x1 - 1 - right)) right++
+        if (top + bottom + left + right == 0) return null
+
+        // The strips and the interior are disjoint: top and bottom run the full
+        // width, left and right only the rows between them.
+        val strips = buildList {
+            if (top > 0) add(Box(box.x0, box.y0, box.x1, box.y0 + top))
+            if (bottom > 0) add(Box(box.x0, box.y1 - bottom, box.x1, box.y1))
+            if (left > 0) add(Box(box.x0, box.y0 + top, box.x0 + left, box.y1 - bottom))
+            if (right > 0) add(Box(box.x1 - right, box.y0 + top, box.x1, box.y1 - bottom))
+        }.mapNotNull { page.tight(it.x0, it.y0, it.x1, it.y1)?.toBlock() }
+
+        val interior = page.tight(box.x0 + left, box.y0 + top, box.x1 - right, box.y1 - bottom)
+        val inside = if (interior == null) emptyList() else solve(page, interior, gapRows, gapBytes)
+
+        val peeled = strips + inside
+        return if (cost(peeled) < cost(listOf(box.toBlock()))) peeled else null
+    }
+
+    private fun cost(blocks: List<InkBlock>) = blocks.sumOf { it.widthBytes * it.height + COMMAND_COST }
 
     /**
      * The longest run of blank entries that has ink on both sides and is at
