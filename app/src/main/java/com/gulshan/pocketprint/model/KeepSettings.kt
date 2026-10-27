@@ -94,5 +94,46 @@ fun Printer.loadedWith(sensing: MediaSensing?): Printer =
  * [chosen] is null when the card was not touched, and then the saved printer's
  * paper stands.
  */
-fun Printer.asSavedAfterSetup(saved: Printer?, chosen: MediaSensing?): Printer =
-    keepingSettingsOf(saved).loadedWith(chosen)
+fun Printer.asSavedAfterSetup(
+    saved: Printer?,
+    chosen: MediaSensing?,
+    chosenLink: BtLink? = null,
+): Printer = keepingSettingsOf(saved).loadedWith(chosen).connectedThrough(chosenLink)
+
+/**
+ * This printer reached over [link]; unchanged when none is given, and for a
+ * printer that is not a Bluetooth one, which has no such choice.
+ */
+fun Printer.connectedThrough(link: BtLink?): Printer {
+    val bluetooth = address as? PrinterAddress.Bluetooth ?: return this
+    return if (link == null) this else copy(address = bluetooth.copy(link = link))
+}
+
+/**
+ * The Bluetooth link a printer should have once its settings dialog is saved.
+ *
+ * The library switch decides between the TSC library and automatic; every other
+ * link (Classic, LE) is left exactly as it was. A build without the library
+ * cannot *turn it on*, but it must still be able to turn it *off*: a printer
+ * saved on the library and carried to such a build would otherwise be stranded,
+ * with no control that could free it.
+ */
+fun linkAfterSettings(current: BtLink, viaTscLibrary: Boolean, libraryBundled: Boolean): BtLink = when {
+    viaTscLibrary && (libraryBundled || current == BtLink.TSC_SDK) -> BtLink.TSC_SDK
+    current == BtLink.TSC_SDK -> BtLink.AUTO
+    else -> current
+}
+
+/**
+ * What the setup card's connection chips show: a choice made on the card, else
+ * what the one printer about to be set up already uses. With several candidates
+ * it depends on which is picked, and with none it is still to be paired, so
+ * nothing is shown. A link the chips do not offer (Classic, LE) highlights
+ * neither chip rather than the wrong one.
+ */
+fun setupLink(chosen: BtLink?, saved: List<Printer>, candidates: List<Printer>): BtLink? {
+    if (chosen != null) return chosen
+    val only = candidates.singleOrNull() ?: return null
+    val known = saved.firstOrNull { it.id == only.id } ?: only
+    return (known.address as? PrinterAddress.Bluetooth)?.link
+}

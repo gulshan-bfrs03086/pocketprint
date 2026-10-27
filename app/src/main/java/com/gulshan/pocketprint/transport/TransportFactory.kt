@@ -24,6 +24,9 @@ object TransportFactory {
                 BtLink.CLASSIC -> BluetoothTransport(context.applicationContext, a)
                 BtLink.BLE -> BleTransport(context.applicationContext, a)
                 BtLink.AUTO -> AutoBluetoothTransport(context.applicationContext, a)
+                // TSC's library, when this build has it. Without it TscSdk says so
+                // the first time it is asked, which is when the job is sent.
+                BtLink.TSC_SDK -> TscSdkTransport(a.mac, TscSdk::library)
             }
             is PrinterAddress.Usb -> UsbTransport(context.applicationContext, a)
             is PrinterAddress.Ipp -> throw TransportException(

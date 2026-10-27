@@ -14,6 +14,7 @@ import com.gulshan.pocketprint.label.EscPos
 import com.gulshan.pocketprint.label.Tspl
 import com.gulshan.pocketprint.label.Zpl
 import com.gulshan.pocketprint.model.ConnectionKind
+import com.gulshan.pocketprint.model.BtLink
 import com.gulshan.pocketprint.model.MediaSensing
 import com.gulshan.pocketprint.model.MediaSize
 import com.gulshan.pocketprint.model.PrintLanguage
@@ -156,6 +157,10 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
     /** Null until the paper choice on the setup card is touched: see [setupSensing]. */
     private val _setupSensing = MutableStateFlow<MediaSensing?>(null)
     val setupSensing: StateFlow<MediaSensing?> = _setupSensing.asStateFlow()
+
+    /** Null until the connection choice on the setup card is touched. */
+    private val _setupLink = MutableStateFlow<BtLink?>(null)
+    val setupLink: StateFlow<BtLink?> = _setupLink.asStateFlow()
 
     /**
      * Raised when the system's "Add printer using PocketPrint" entry opens the
@@ -771,6 +776,7 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
         printer: Printer,
         stock: MediaSize = _setupStock.value,
         sensing: MediaSensing? = _setupSensing.value,
+        link: BtLink? = _setupLink.value,
     ) = viewModelScope.launch {
         // Setup is handed a freshly discovered device, which has never heard of
         // what was set on the saved printer of the same id - its stock, whether
@@ -779,17 +785,18 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
         // the test label below it, sent with default stock, did the same to the
         // printer itself. So it runs as the saved printer, and what it builds is
         // merged back onto whatever is saved *now*.
-        val start = printer.asSavedAfterSetup(printerRepo.find(printer.id), sensing)
+        val start = printer.asSavedAfterSetup(printerRepo.find(printer.id), sensing, link)
         PrinterAutoSetup(getApplication()).run(start, stock).collect { progress ->
             // The paper chosen on the card is applied again here, after the saved
             // stock has been carried across: it is the last word, not the first.
-            val kept = progress.printer?.let { it.asSavedAfterSetup(printerRepo.find(it.id), sensing) }
+            val kept = progress.printer?.let { it.asSavedAfterSetup(printerRepo.find(it.id), sensing, link) }
             _setup.value = if (kept != null) progress.copy(printer = kept) else progress
             kept?.let { printerRepo.save(it) }
         }
         // A choice is for the setup it was made for. Left in place it would be
         // applied, unseen, to the next printer somebody sets up.
         _setupSensing.value = null
+        _setupLink.value = null
     }
 
     /**
@@ -892,7 +899,9 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
      * two apps with a hunt in between.
      */
     fun adoptPairedPrinter(printer: Printer) = viewModelScope.launch {
-        printerRepo.save(printer.asSavedAfterSetup(printerRepo.find(printer.id), _setupSensing.value))
+        printerRepo.save(
+            printer.asSavedAfterSetup(printerRepo.find(printer.id), _setupSensing.value, _setupLink.value),
+        )
         startAutoSetup(printer)
     }
 
@@ -901,6 +910,8 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
     fun setSetupStock(media: MediaSize) { _setupStock.value = media }
 
     fun setSetupSensing(sensing: MediaSensing) { _setupSensing.value = sensing }
+
+    fun setSetupLink(link: BtLink) { _setupLink.value = link }
 
     /** Paired Bluetooth devices are the only sensible auto-setup targets. */
     fun autoSetupCandidates(): List<Printer> =

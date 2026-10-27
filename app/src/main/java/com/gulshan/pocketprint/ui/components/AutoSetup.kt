@@ -35,6 +35,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.gulshan.pocketprint.R
+import com.gulshan.pocketprint.model.BtLink
 import com.gulshan.pocketprint.model.MediaSensing
 import com.gulshan.pocketprint.model.MediaSize
 import com.gulshan.pocketprint.model.Printer
@@ -42,6 +43,7 @@ import com.gulshan.pocketprint.print.PrinterAutoSetup
 import com.gulshan.pocketprint.print.SetupProgress
 import com.gulshan.pocketprint.print.StepState
 import com.gulshan.pocketprint.print.TestLabelOutcome
+import com.gulshan.pocketprint.transport.TscSdk
 
 /**
  * The entry point for one-tap setup. Deliberately prominent: for a thermal
@@ -55,6 +57,8 @@ fun AutoSetupCard(
     onStockChange: (MediaSize) -> Unit,
     sensing: MediaSensing?,
     onSensingChange: (MediaSensing) -> Unit,
+    link: BtLink?,
+    onLinkChange: (BtLink) -> Unit,
     onStart: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -100,6 +104,30 @@ fun AutoSetupCard(
                 color = MaterialTheme.colorScheme.onPrimaryContainer,
                 modifier = Modifier.padding(top = 6.dp),
             )
+            // Offered only by a build that has TSC's library: without it there is
+            // nothing to choose, and a card that asked would be asking for nothing.
+            if (TscSdk.isBundled) {
+                Text(
+                    stringResource(R.string.setup_link_label),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
+                )
+                val automaticLabel = stringResource(R.string.setup_link_automatic)
+                val tscLabel = stringResource(R.string.setup_link_tsc)
+                ChipRow(
+                    items = listOf(BtLink.AUTO, BtLink.TSC_SDK),
+                    selected = link,
+                    label = { if (it == BtLink.TSC_SDK) tscLabel else automaticLabel },
+                    onSelect = onLinkChange,
+                )
+                Text(
+                    stringResource(R.string.setup_link_hint),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.padding(top = 6.dp),
+                )
+            }
             Text(
                 stringResource(R.string.setup_stock_label),
                 style = MaterialTheme.typography.labelMedium,

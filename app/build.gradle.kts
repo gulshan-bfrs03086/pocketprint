@@ -145,6 +145,22 @@ run {
     }
 }
 
+/**
+ * TSC's own Android library, `tscsdk.jar`, which is optional.
+ *
+ * It ships with TSC's SDK with no licence terms, so it is not in this repository
+ * (app/libs is gitignored) and a build without it must work. Put the jar at
+ * app/libs/tscsdk.jar, or point -PtscSdkJar=/path/to/tscsdk.jar at it, and the
+ * build includes it and compiles src/tscsdk; without it, src/notscsdk is
+ * compiled instead and nothing offers the TSC library. See docs/TSC_SDK.md.
+ *
+ * Read through a provider so the configuration cache notices the jar appearing
+ * or going, rather than replaying the build it had before.
+ */
+val tscSdkJarPath = providers.gradleProperty("tscSdkJar").orNull ?: "libs/tscsdk.jar"
+val tscSdkJar = layout.projectDirectory.file(tscSdkJarPath)
+val tscSdkBundled = providers.fileContents(tscSdkJar).asBytes.isPresent
+
 android {
     namespace = "com.gulshan.pocketprint"
     compileSdk = 36
@@ -160,6 +176,13 @@ android {
         versionCode = appVersionCode
         versionName = "$versionMajor.$versionMinor.$versionPatch"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField("boolean", "TSC_SDK_BUNDLED", tscSdkBundled.toString())
+    }
+
+    sourceSets {
+        getByName("main") {
+            java.srcDir(if (tscSdkBundled) "src/tscsdk/java" else "src/notscsdk/java")
+        }
     }
 
     signingConfigs {
@@ -312,6 +335,7 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.okhttp)
+    if (tscSdkBundled) implementation(files(tscSdkJar))
 
     debugImplementation(libs.androidx.ui.tooling)
 

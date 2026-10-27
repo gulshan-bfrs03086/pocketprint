@@ -70,6 +70,7 @@ import com.gulshan.pocketprint.model.DuplexMode
 import com.gulshan.pocketprint.model.MediaSize
 import com.gulshan.pocketprint.model.Orientation
 import com.gulshan.pocketprint.model.PageRangeInput
+import com.gulshan.pocketprint.model.setupLink
 import com.gulshan.pocketprint.model.setupSensing
 import com.gulshan.pocketprint.model.withPageRange
 import com.gulshan.pocketprint.R
@@ -162,6 +163,8 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
     // What the chips show. Only a choice that was made is applied by Set up; this
     // is never applied for the person.
     val setupPaper = setupSensing(chosenSensing, saved, discovery.bluetooth)
+    val chosenLink by viewModel.setupLink.collectAsStateWithLifecycle()
+    val setupConnection = setupLink(chosenLink, saved, discovery.bluetooth)
 
     // Everything above the setup card is conditional, so where the card sits in
     // the list depends on which of these are showing. Named once, and used both
@@ -289,6 +292,8 @@ fun PrintersScreen(viewModel: PrintersViewModel) {
                 onStockChange = { viewModel.setSetupStock(it) },
                 sensing = setupPaper,
                 onSensingChange = { viewModel.setSetupSensing(it) },
+                link = setupConnection,
+                onLinkChange = { viewModel.setSetupLink(it) },
                 onStart = {
                     // The dialog now arrives immediately after somebody taps
                     // "set up my printer", which is a dialog about the thing

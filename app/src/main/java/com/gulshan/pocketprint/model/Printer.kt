@@ -20,6 +20,12 @@ enum class BtLink {
 
     /** GATT over LE. */
     BLE,
+
+    /**
+     * TSC's own Android library, which is RFCOMM underneath. Only in a build
+     * that includes the library; see TscSdk.
+     */
+    TSC_SDK,
 }
 
 /**
@@ -438,6 +444,7 @@ data class Printer(
             is PrinterAddress.Bluetooth -> when (a.link) {
                 BtLink.BLE -> "Bluetooth LE ${a.mac}"
                 BtLink.CLASSIC -> "Bluetooth ${a.mac}"
+                BtLink.TSC_SDK -> "Bluetooth (TSC library) ${a.mac}"
                 BtLink.AUTO -> "Bluetooth ${a.mac}"
             }
             is PrinterAddress.Usb -> "USB %04x:%04x".format(a.vendorId, a.productId)

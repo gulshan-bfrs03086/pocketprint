@@ -9,8 +9,11 @@ import com.gulshan.pocketprint.model.Printer
 import com.gulshan.pocketprint.model.PrinterAddress
 import com.gulshan.pocketprint.model.PrinterCapabilities
 import com.gulshan.pocketprint.model.asSavedAfterSetup
+import com.gulshan.pocketprint.model.connectedThrough
+import com.gulshan.pocketprint.model.linkAfterSettings
 import com.gulshan.pocketprint.model.keepingSettingsOf
 import com.gulshan.pocketprint.model.loadedWith
+import com.gulshan.pocketprint.model.setupLink
 import com.gulshan.pocketprint.model.setupSensing
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -382,5 +385,130 @@ class KeepSettingsTest {
         val before = printer(stock = continuous)
 
         assertSame(before, before.loadedWith(null))
+    }
+
+    // -- the connection choice ----------------------------------------------
+
+    private fun linkOf(printer: Printer) = (printer.address as PrinterAddress.Bluetooth).link
+
+    @Test
+    fun `a printer can be set to connect through the TSC library`() {
+        assertEquals(BtLink.TSC_SDK, linkOf(printer(link = BtLink.AUTO).connectedThrough(BtLink.TSC_SDK)))
+    }
+
+    @Test
+    fun `no choice leaves the connection alone`() {
+        assertEquals(BtLink.CLASSIC, linkOf(printer(link = BtLink.CLASSIC).connectedThrough(null)))
+    }
+
+    @Test
+    fun `a printer with no bluetooth link is not given one`() {
+        val network = Printer(
+            id = "raw:10.0.0.9:9100",
+            displayName = "Kitchen",
+            address = PrinterAddress.Raw("10.0.0.9", 9100),
+        )
+
+        assertSame(network, network.connectedThrough(BtLink.TSC_SDK))
+    }
+
+    @Test
+    fun `choosing the TSC library for a printer saved on automatic saves it on the library`() {
+        val result = printer().asSavedAfterSetup(printer(link = BtLink.AUTO), null, BtLink.TSC_SDK)
+
+        assertEquals(BtLink.TSC_SDK, linkOf(result))
+    }
+
+    @Test
+    fun `setting up again without a choice keeps the TSC library`() {
+        val result = printer(link = BtLink.AUTO).asSavedAfterSetup(printer(link = BtLink.TSC_SDK), null, null)
+
+        assertEquals(BtLink.TSC_SDK, linkOf(result))
+    }
+
+    @Test
+    fun `choosing automatic takes a printer off the TSC library`() {
+        val result = printer().asSavedAfterSetup(printer(link = BtLink.TSC_SDK), null, BtLink.AUTO)
+
+        assertEquals(BtLink.AUTO, linkOf(result))
+    }
+
+    @Test
+    fun `the connection and the paper are chosen independently`() {
+        val saved = printer(stock = continuous, link = BtLink.CLASSIC)
+
+        val result = printer().asSavedAfterSetup(saved, null, BtLink.TSC_SDK)
+
+        assertEquals(BtLink.TSC_SDK, linkOf(result))
+        assertEquals(MediaSensing.CONTINUOUS, result.stock.sensing)
+    }
+
+    @Test
+    fun `the connection chips show a choice that was made`() {
+        assertEquals(BtLink.AUTO, setupLink(BtLink.AUTO, listOf(printer(link = BtLink.TSC_SDK)), listOf(candidate(printer()))))
+    }
+
+    @Test
+    fun `untouched, they show how the one printer being set up is connected`() {
+        val saved = listOf(printer(link = BtLink.TSC_SDK))
+
+        assertEquals(BtLink.TSC_SDK, setupLink(null, saved, listOf(candidate(printer()))))
+    }
+
+    @Test
+    fun `a printer that was never saved shows the link discovery found for it`() {
+        assertEquals(BtLink.CLASSIC, setupLink(null, emptyList(), listOf(candidate(printer(link = BtLink.CLASSIC)))))
+    }
+
+    @Test
+    fun `with several printers to choose from the connection shows nothing`() {
+        val two = listOf(candidate(printer()), candidate(printer(id = "bt:AA:BB:CC:DD:EE:FF")))
+
+        assertNull(setupLink(null, listOf(printer(link = BtLink.TSC_SDK)), two))
+        assertNull(setupLink(null, emptyList(), emptyList()))
+    }
+
+    @Test
+    fun `it is the printer being set up that counts for the connection, not another saved one`() {
+        val other = printer(link = BtLink.TSC_SDK, id = "bt:AA:BB:CC:DD:EE:FF", macAddress = "AA:BB:CC:DD:EE:FF")
+
+        assertEquals(
+            BtLink.AUTO,
+            setupLink(null, listOf(other), listOf(candidate(printer(link = BtLink.AUTO)))),
+        )
+    }
+
+    // -- what saving the settings dialog does to the connection ---------------
+
+    @Test
+    fun `switching the library on in a build that has it`() {
+        assertEquals(BtLink.TSC_SDK, linkAfterSettings(BtLink.AUTO, viaTscLibrary = true, libraryBundled = true))
+        assertEquals(BtLink.TSC_SDK, linkAfterSettings(BtLink.CLASSIC, viaTscLibrary = true, libraryBundled = true))
+    }
+
+    @Test
+    fun `switching the library off goes back to automatic, in any build`() {
+        assertEquals(BtLink.AUTO, linkAfterSettings(BtLink.TSC_SDK, viaTscLibrary = false, libraryBundled = true))
+        // The one a build without the library must still be able to do: a printer
+        // carried there on the library would otherwise be stranded.
+        assertEquals(BtLink.AUTO, linkAfterSettings(BtLink.TSC_SDK, viaTscLibrary = false, libraryBundled = false))
+    }
+
+    @Test
+    fun `a build without the library keeps a printer on it until it is switched off`() {
+        assertEquals(BtLink.TSC_SDK, linkAfterSettings(BtLink.TSC_SDK, viaTscLibrary = true, libraryBundled = false))
+    }
+
+    @Test
+    fun `a build without the library cannot switch it on`() {
+        assertEquals(BtLink.AUTO, linkAfterSettings(BtLink.AUTO, viaTscLibrary = true, libraryBundled = false))
+    }
+
+    @Test
+    fun `classic and LE are left exactly as they were when the library is off`() {
+        for (bundled in listOf(true, false)) {
+            assertEquals(BtLink.CLASSIC, linkAfterSettings(BtLink.CLASSIC, false, bundled))
+            assertEquals(BtLink.BLE, linkAfterSettings(BtLink.BLE, false, bundled))
+        }
     }
 }
