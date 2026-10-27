@@ -21,5 +21,8 @@ captures/
 # Signed sideload builds are produced by apksigner, not checked in
 pocketprint-*.apk
 
+# TSC's library: ships with no licence terms, so it is supplied locally, not committed
+app/libs/*.jar
+
 # Release signing: paths and passwords, never committed
 keystore.properties

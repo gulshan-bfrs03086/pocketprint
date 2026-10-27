@@ -35,6 +35,17 @@ import java.util.concurrent.ConcurrentHashMap
  * A fault bit is the other thing worth having: out of paper, a jam or an open
  * head would otherwise be discovered by a person at the printer, long after the
  * job was reported as done.
+ *
+ * ## The early answer is not guaranteed
+ *
+ * That one early `00` is the only proof, once the job is out, that the printer
+ * answers at all - and it does not always come. On one run the first three
+ * queries after the bytes were sent got nothing, from a printer that had
+ * answered on the earlier runs of the same job. That reads exactly like a
+ * printer that cannot answer. So the
+ * question is asked once *before* the job, while the printer is idle and
+ * answers within ~150 ms. A printer that answered then is busy when it goes
+ * quiet, never "silent".
  */
 internal object TsplStatus {
 
@@ -85,7 +96,10 @@ internal sealed interface Ending {
      */
     data class NeedsAttention(val status: Int) : Ending
 
-    /** It never answered a status query at all, so nothing can be said either way. */
+    /**
+     * It never answered a status query at all - not before the job and not
+     * since - so nothing can be said either way.
+     */
     data object NoAnswer : Ending
 
     /**
@@ -108,6 +122,11 @@ internal sealed interface Ending {
  * @param pause waits between polls. Suspending, so a cancelled job stops waiting.
  * @param onBusy told roughly how long it has been waiting, each time the printer
  *   does not answer, for a progress message.
+ * @param answeredBefore the printer answered a status query before the job was
+ *   sent. Silence after that is a printer busy with the job, however soon after
+ *   the last byte it starts. It says nothing about the job itself: it is not
+ *   "seen busy", and a printer that then answers ready every time is still only
+ *   [Ending.ReadyButNeverSeenBusy].
  */
 internal suspend fun awaitTsplEnd(
     ask: suspend () -> Int?,
@@ -118,10 +137,11 @@ internal suspend fun awaitTsplEnd(
     firstAnswerWithinPolls: Int = 3,
     readyPollsBeforeGivingUp: Int = 3,
     attentionPollsBeforeGivingUp: Int = 3,
+    answeredBefore: Boolean = false,
 ): Ending {
     val started = now()
     var polls = 0
-    var answeredEver = false
+    var answeredEver = answeredBefore
     var sawBusy = false
     var readyInARow = 0
     var attentionInARow = 0
@@ -134,8 +154,9 @@ internal suspend fun awaitTsplEnd(
         polls++
 
         if (status == null) {
-            // A printer that has never answered is one that does not do this at
-            // all; one that has answered and now does not is working.
+            // A printer that has never answered, before the job or since, is one
+            // that does not do this at all; one that has answered and now does
+            // not is working.
             if (!answeredEver && polls >= firstAnswerWithinPolls) return Ending.NoAnswer
             if (answeredEver) {
                 sawBusy = true
@@ -193,10 +214,23 @@ internal suspend fun awaitTsplEnd(
  */
 internal object TsplStatusMemory {
     private val silent = ConcurrentHashMap.newKeySet<String>()
+    private val answered = ConcurrentHashMap.newKeySet<String>()
 
     fun answers(printerKey: String): Boolean = printerKey !in silent
 
+    /**
+     * The printer has answered a status query at some point in this process.
+     *
+     * After that, a job that gets no answer is a printer that was busy - still
+     * taking in an earlier job, say, which the status probe before a job cannot
+     * see past - and not one that cannot answer.
+     */
+    fun markAnswered(printerKey: String) {
+        answered.add(printerKey)
+    }
+
+    /** A printer that has answered before is never marked: see [markAnswered]. */
     fun markSilent(printerKey: String) {
-        silent.add(printerKey)
+        if (printerKey !in answered) silent.add(printerKey)
     }
 }

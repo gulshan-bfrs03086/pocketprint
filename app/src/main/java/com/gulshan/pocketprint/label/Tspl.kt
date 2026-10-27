@@ -52,8 +52,10 @@ class Tspl(
         stock: LabelStock,
         direction: Int = 1,
         tearOff: Boolean = true,
+        /** The page's length in mm, as SIZE takes it, when it is not the media's. */
+        pageHeightMm: String? = null,
     ) = apply {
-        cmd("SIZE ${fmt(media.widthMm)} mm, ${fmt(media.heightMm)} mm")
+        cmd("SIZE ${fmt(media.widthMm)} mm, ${pageHeightMm ?: fmt(media.heightMm)} mm")
         when (stock.sensing) {
             MediaSensing.GAP ->
                 cmd("GAP ${fmt(stock.gapMm)} mm, ${fmt(stock.offsetMm)} mm")
@@ -149,6 +151,15 @@ class Tspl(
      * image first, or keep it clear of other drawing.
      */
     fun image(x: Int, y: Int, bitmap: Bitmap, dither: Boolean = true) = apply {
+        val page = pack(bitmap, dither)
+        bitmap(x, y, page.packed, page.widthBytes, page.height)
+    }
+
+    /**
+     * The page as TSPL wants it: scaled to the head, one bit per dot, a 0 bit
+     * being a dot. Nothing is written; [image] and [page] decide what to send.
+     */
+    fun pack(bitmap: Bitmap, dither: Boolean = true): PackedPage {
         val maxWidth = media.dotsWide(dpi)
         val scaled = EscPos.fitWidth(bitmap, minOf(bitmap.width, maxWidth))
         val w = scaled.width
@@ -174,12 +185,40 @@ class Tspl(
         // TSPL prints a dot for a 0 bit, so invert our ink mask.
         for (i in packed.indices) packed[i] = packed[i].toInt().inv().toByte()
 
-        // Only the rectangles that have ink in them are sent. The page used to
-        // go out whole - 45 KB for a 75 x 75 mm label - and a white byte costs
-        // as much to send as a black one; see InkBlocks for what that cost on a
-        // printer that takes in a few hundred bytes a second.
-        bitmap(x, y, packed, bytesPerRow, h)
         if (scaled !== bitmap) scaled.recycle()
+        return PackedPage(packed, bytesPerRow, h)
+    }
+
+    /**
+     * One label: the preamble, the page, and PRINT.
+     *
+     * On continuous stock the page is cut off below its last ink (see
+     * [TrimBlank]) and SIZE says so, so the roll is expected to feed only that
+     * far. A different SIZE for each label of one job was accepted by an RE310,
+     * which reported the job finished; that the paper came out those lengths is
+     * for whoever holds it to check. On any other stock this is the page at the
+     * size that was picked, exactly as it always was.
+     *
+     * Only the rectangles that have ink in them are sent (see [bitmap]). The
+     * page used to go out whole - 45 KB for a 75 x 75 mm label - and a white byte
+     * costs as much to send as a black one; see InkBlocks for what that cost on a
+     * printer that takes in a few hundred bytes a second.
+     */
+    fun page(stock: LabelStock, page: PackedPage, sets: Int = 1, copies: Int = 1) = apply {
+        if (TrimBlank.applies(stock)) {
+            val keep = TrimBlank.rowsToKeep(page.packed, page.widthBytes, page.height, dpi)
+            setup(stock, pageHeightMm = TrimBlank.mmText(keep, dpi))
+            bitmap(0, 0, page.packed.copyOf(page.widthBytes * keep), page.widthBytes, keep)
+            com.gulshan.pocketprint.print.Diagnostics.record(
+                "TsplDiag",
+                "continuous stock: page trimmed to $keep of ${page.height} rows " +
+                    "(${TrimBlank.mmText(keep, dpi)} mm)",
+            )
+        } else {
+            setup(stock)
+            bitmap(0, 0, page.packed, page.widthBytes, page.height)
+        }
+        print(sets = sets, copies = copies)
     }
 
     /**
@@ -234,3 +273,9 @@ class Tspl(
 
     private fun escape(s: String) = s.replace("\\", "\\\\").replace("\"", "\\\"")
 }
+
+/**
+ * A page packed for TSPL: [widthBytes] bytes a row, [height] rows, a 0 bit being
+ * a dot (so 0xFF is blank).
+ */
+class PackedPage(val packed: ByteArray, val widthBytes: Int, val height: Int)

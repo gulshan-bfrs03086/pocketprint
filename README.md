@@ -238,7 +238,9 @@ to choose between:
 | Location permission | **none** |
 | Required hardware | **none** |
 
-It asks for no location permission, and none to scan. Pairing goes through Android's own
+It asks for no location permission, and none to scan. (On Android 11 and older it also declares
+the install-time `BLUETOOTH_ADMIN`, which those versions require to cancel a discovery or start
+pairing; it prompts for nothing.) Pairing goes through Android's own
 companion device picker, which scans on the app's behalf — an app that does not scan does not
 need permission to. Earlier versions carried `ACCESS_FINE_LOCATION`, because a Bluetooth scan
 below API 31 required it, which is how this app once became uninstallable on a rugged terminal

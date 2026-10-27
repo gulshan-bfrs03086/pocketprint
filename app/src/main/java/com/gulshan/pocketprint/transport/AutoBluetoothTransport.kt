@@ -70,6 +70,9 @@ class AutoBluetoothTransport(
     private fun preferenceOrder(): List<BtLink> = when (address.link) {
         BtLink.BLE -> listOf(BtLink.BLE, BtLink.CLASSIC)
         BtLink.CLASSIC -> listOf(BtLink.CLASSIC, BtLink.BLE)
+        // TransportFactory sends this link to TscSdkTransport and never here. If it
+        // ever arrived, the library is RFCOMM underneath, so classic is the honest answer.
+        BtLink.TSC_SDK -> listOf(BtLink.CLASSIC)
         BtLink.AUTO -> when (BleTransport.probeLinkType(context, address.mac)) {
             BluetoothDevice.DEVICE_TYPE_LE -> listOf(BtLink.BLE)
             BluetoothDevice.DEVICE_TYPE_CLASSIC -> listOf(BtLink.CLASSIC)

@@ -20,6 +20,12 @@ enum class BtLink {
 
     /** GATT over LE. */
     BLE,
+
+    /**
+     * TSC's own Android library, which is RFCOMM underneath. Only in a build
+     * that includes the library; see TscSdk.
+     */
+    TSC_SDK,
 }
 
 /**
@@ -332,6 +338,13 @@ data class LabelStock(
 
     /** Inches per second. Slower prints darker, and registers more accurately. */
     val speedIps: Int = 4,
+
+    /**
+     * On continuous stock, send each page only as long as its content plus a
+     * margin, and not at the size that was picked. Meaningless for gap and
+     * black-mark stock, which is always the length of the label on the roll.
+     */
+    val trimBlank: Boolean = true,
 ) {
     val darknessForTspl: Int get() = darkness.coerceIn(0, 15)
 
@@ -431,6 +444,7 @@ data class Printer(
             is PrinterAddress.Bluetooth -> when (a.link) {
                 BtLink.BLE -> "Bluetooth LE ${a.mac}"
                 BtLink.CLASSIC -> "Bluetooth ${a.mac}"
+                BtLink.TSC_SDK -> "Bluetooth (TSC library) ${a.mac}"
                 BtLink.AUTO -> "Bluetooth ${a.mac}"
             }
             is PrinterAddress.Usb -> "USB %04x:%04x".format(a.vendorId, a.productId)
