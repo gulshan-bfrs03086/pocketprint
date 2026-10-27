@@ -290,12 +290,11 @@ class RenderPipeline(
             pdf.file, dpi = dpi, targetWidthPx = width, pageRange = options.pageRange,
         ) { _, bitmap ->
             val builder = Tspl(media, dpi, printer.capabilities.compressedBitmaps)
-                // From the printer, not the job: this describes the roll that
-                // is physically loaded and how hard the head has to burn for
-                // it, neither of which changes with the document.
-                .setup(printer.stock)
-                .image(0, 0, bitmap, dither = options.dither)
-            builder.print(sets = 1, copies = options.copies.coerceAtLeast(1))
+            val packed = builder.pack(bitmap, dither = options.dither)
+            // The stock is the printer's, not the job's: it describes the roll
+            // that is physically loaded and how hard the head has to burn for
+            // it, neither of which changes with the document.
+            builder.page(printer.stock, packed, sets = 1, copies = options.copies.coerceAtLeast(1))
             buffer.write(builder.build())
             pages++
         }

@@ -88,16 +88,19 @@ fun PrinterSettingsDialog(
     var gapMm by rememberSaveable { mutableStateOf(printer.stock.gapMm.toString()) }
     var darkness by rememberSaveable { mutableStateOf(printer.stock.darkness) }
     var speed by rememberSaveable { mutableStateOf(printer.stock.speedIps) }
+    var trimBlank by rememberSaveable { mutableStateOf(printer.stock.trimBlank) }
 
     val isLabelPrinter = language == PrintLanguage.TSPL || language == PrintLanguage.ZPL
     val sizes = (MediaSize.ALL + extraSizes).distinctBy { it.id }
 
-    fun stock() = LabelStock(
+    // A copy, not a new LabelStock: a setting this dialog does not know about
+    // would otherwise be put back to its default every time it is saved.
+    fun stock() = printer.stock.copy(
         sensing = sensing,
         gapMm = gapMm.toFloatOrNull()?.coerceIn(0f, 50f) ?: printer.stock.gapMm,
-        offsetMm = printer.stock.offsetMm,
         darkness = darkness,
         speedIps = speed,
+        trimBlank = trimBlank,
     )
 
     fun edited(): Printer = printer.copy(
@@ -253,6 +256,28 @@ fun PrinterSettingsDialog(
                     )
 
                     Stepper(stringResource(R.string.printer_speed), speed, 1..12) { speed = it }
+
+                    // Trimming is done for TSPL only, and only continuous paper
+                    // can be trimmed: gap and black-mark rolls are cut to a label.
+                    if (language == PrintLanguage.TSPL && sensing == MediaSensing.CONTINUOUS) {
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            Text(
+                                stringResource(R.string.printer_trim_blank),
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Switch(checked = trimBlank, onCheckedChange = { trimBlank = it })
+                        }
+                        Text(
+                            stringResource(R.string.printer_trim_blank_help),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
 
                     if (language == PrintLanguage.TSPL) {
                         Row(

@@ -332,6 +332,13 @@ data class LabelStock(
 
     /** Inches per second. Slower prints darker, and registers more accurately. */
     val speedIps: Int = 4,
+
+    /**
+     * On continuous stock, send each page only as long as its content plus a
+     * margin, and not at the size that was picked. Meaningless for gap and
+     * black-mark stock, which is always the length of the label on the roll.
+     */
+    val trimBlank: Boolean = true,
 ) {
     val darknessForTspl: Int get() = darkness.coerceIn(0, 15)
 

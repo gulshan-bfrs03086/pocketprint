@@ -131,6 +131,8 @@
     <string name="printer_darkness">Darkness</string>
     <string name="printer_darkness_help">The most common adjustment there is. Too light and barcodes scan intermittently or not at all; too dark and thin bars bleed together and also stop scanning.</string>
     <string name="printer_speed">Speed (ips)</string>
+    <string name="printer_trim_blank">Trim blank space on continuous paper</string>
+    <string name="printer_trim_blank_help">Sends each page only as long as its content plus about 4 mm (never under 10 mm), instead of the full label size, to save paper. Turn off to print every page at the size you picked.</string>
     <string name="printer_compress_bitmaps">Compress label images (TSC printers)</string>
     <string name="printer_compress_bitmaps_help">Sends pictures in TSC\'s compressed format, which is what the official TSC utility does. On a Bluetooth label printer that takes in a couple of hundred bytes a second it turns a label that took minutes into seconds. Only for printers that understand it: turn it on, save, then use Print a test page, and the picture under the barcode should be a framed box with a diagonal and a solid square at its top left. If it is anything else, turn this off.</string>
     <string name="printer_calibrate">Calibrate media sensor</string>
