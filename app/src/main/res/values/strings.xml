@@ -73,6 +73,10 @@
     <!-- One-tap setup -->
     <string name="setup_card_title">Set up a label or receipt printer</string>
     <string name="setup_card_body">Pairs, connects, asks the printer which command language it speaks, configures the label size, prints a test label, and adds it to Android\'s print dialog.</string>
+    <string name="setup_sensing_label">Paper in the printer</string>
+    <string name="setup_sensing_gap">Labels with gaps</string>
+    <string name="setup_sensing_continuous">Continuous roll</string>
+    <string name="setup_sensing_hint">Pick Continuous for paper with no gaps or marks between labels. The printer keeps this setting after a job, so it has to match what is loaded.</string>
     <string name="setup_stock_label">Label stock loaded in the printer</string>
     <string name="setup_stock_warning">This has to match the labels actually loaded. Set it too long and the printer feeds forward looking for a gap that is not there, then stops with a paper fault.</string>
     <string name="setup_start_one">Set up my printer</string>

@@ -7,6 +7,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.gulshan.pocketprint.model.MediaSensing
 import com.gulshan.pocketprint.model.MediaSize
 import com.gulshan.pocketprint.model.Printer
 import com.gulshan.pocketprint.model.PrinterAddress
@@ -167,6 +168,8 @@ private fun AutoSetupCardEmptyPreview() = PocketPrintTheme {
             candidateCount = 0,
             stock = MediaSize.LABEL_4X6,
             onStockChange = {},
+            sensing = MediaSensing.GAP,
+            onSensingChange = {},
             onStart = {},
         )
     }
@@ -180,6 +183,8 @@ private fun AutoSetupCardFoundPreview() = PocketPrintTheme {
             candidateCount = 3,
             stock = MediaSize.RECEIPT_80,
             onStockChange = {},
+            sensing = MediaSensing.CONTINUOUS,
+            onSensingChange = {},
             onStart = {},
         )
     }
