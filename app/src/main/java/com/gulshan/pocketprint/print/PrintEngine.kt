@@ -396,15 +396,12 @@ class PrintEngine(
         printer: Printer,
         transport: PrinterTransport,
         bytesSent: Long,
+        answeredBefore: Boolean,
         listener: JobListener,
     ): Ending? {
-        // A network printer takes a job in at wire speed, and asking it costs every
-        // first job a few seconds: its transport's readAvailable does not wait for
-        // a reply to arrive.
-        if (printer.address is PrinterAddress.Raw) return null
+        if (!asksStatus(printer)) return null
 
         val key = PrinterQueue.keyOf(printer)
-        if (!TsplStatusMemory.answers(key)) return null
 
         // Generous: assume it takes in 100 bytes a second, about half what was
         // measured, plus half a minute. A job that is still busy after that is
@@ -413,13 +410,14 @@ class PrintEngine(
 
         val ending = try {
             awaitTsplEnd(
-                ask = { askTsplStatus(transport) },
+                ask = { askTsplStatus(transport)?.also { TsplStatusMemory.markAnswered(key) } },
                 maxWaitMs = allowed,
                 now = SystemClock::elapsedRealtime,
                 pause = { delay(it) },
                 onBusy = { waited ->
                     listener.onStatus(context.getString(R.string.tspl_waiting_for_printer, waited / 1_000))
                 },
+                answeredBefore = answeredBefore,
             )
         } catch (cancel: kotlinx.coroutines.CancellationException) {
             throw cancel
@@ -431,6 +429,45 @@ class PrintEngine(
         }
         if (ending is Ending.NoAnswer) TsplStatusMemory.markSilent(key)
         return ending
+    }
+
+    /**
+     * Whether a TSPL job to [printer] is worth asking questions about at all.
+     *
+     * A network printer takes a job in at wire speed, and asking it costs every
+     * first job a few seconds: its transport's readAvailable does not wait for a
+     * reply to arrive. And a printer already found not to answer is remembered,
+     * so it costs one job and not every job.
+     */
+    private fun asksStatus(printer: Printer): Boolean =
+        printer.address !is PrinterAddress.Raw && TsplStatusMemory.answers(PrinterQueue.keyOf(printer))
+
+    /**
+     * Asks a TSPL printer for its status once, before the job is written, and says
+     * whether it answered.
+     *
+     * An idle printer answers within ~150 ms; one already taking a job in does not,
+     * and then cannot be told apart from one that never answers. So the answer
+     * that matters is taken while there is still nothing queued ahead of the
+     * question. Only *that* it answered is used: a fault bit here is left for the
+     * wait to report, which asks again once the job is out and gives a failure the
+     * same words whenever it is found.
+     *
+     * Never throws except to cancel. A link that is already dead is the write's to
+     * report, with its own message, a moment later.
+     */
+    private suspend fun answeredBeforeJob(printer: Printer, transport: PrinterTransport): Boolean {
+        if (!asksStatus(printer)) return false
+        return try {
+            val answered = askTsplStatus(transport) != null
+            if (answered) TsplStatusMemory.markAnswered(PrinterQueue.keyOf(printer))
+            answered
+        } catch (cancel: kotlinx.coroutines.CancellationException) {
+            throw cancel
+        } catch (t: Exception) {
+            Log.i(TAG, "status before the job failed: ${t.message}")
+            false
+        }
     }
 
     /** ESC ! ?, and the one byte that comes back; null if the printer says nothing. */
@@ -531,6 +568,11 @@ class PrintEngine(
                 withContext(Dispatchers.IO) {
                     TransportFactory.create(context, printer).use { transport ->
                         transport.open()
+                        // Asked while the printer is idle: once the job is in it
+                        // may stay silent for minutes, and silence is all there
+                        // would be to go on.
+                        val answeredBefore = rendered.language == PrintLanguage.TSPL &&
+                            answeredBeforeJob(printer, transport)
                         // Copies are already baked into the payload by this point:
                         // TSPL via PRINT, ZPL via ^PQ, ESC/POS by repeating the page,
                         // PCL via ESC&l#X. So the stream goes out exactly once.
@@ -553,7 +595,7 @@ class PrintEngine(
                         // for it also stops a second press of Print queueing a
                         // second copy behind a first that is still on its way.
                         val ending = if (rendered.language == PrintLanguage.TSPL) {
-                            waitForTsplEnd(printer, transport, sent, listener)
+                            waitForTsplEnd(printer, transport, sent, answeredBefore, listener)
                         } else {
                             null
                         }
@@ -565,7 +607,8 @@ class PrintEngine(
                         Diagnostics.record(
                             TAG,
                             "sent $sent bytes of ${rendered.language} over " +
-                                transport.description + (ending?.let { "; printer: $it" } ?: ""),
+                                transport.description +
+                                (ending?.let { "; printer: $it (answered before the job: $answeredBefore)" } ?: ""),
                         )
                         resultFor(ending, sent, unconfirmedReason(address))
                     }

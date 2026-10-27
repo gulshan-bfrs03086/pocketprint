@@ -13,9 +13,9 @@ import org.junit.Test
 
 /**
  * Pins what is read from a printer's status answers, using sequences taken from
- * a real RE310 - not what a status protocol ought to look like. The measured
+ * a real RE310 - not what a status protocol ought to look like. The usual
  * shape around a job is: one early "ready", then silence while it takes the job
- * in, then "ready" again.
+ * in, then "ready" again. The early "ready" has been seen missing once.
  */
 class TsplCompletionTest {
 
@@ -34,12 +34,13 @@ class TsplCompletionTest {
             return reply
         }
 
-        suspend fun run(maxWaitMs: Long = 600_000): Ending = awaitTsplEnd(
+        suspend fun run(maxWaitMs: Long = 600_000, answeredBefore: Boolean = false): Ending = awaitTsplEnd(
             ask = ::ask,
             maxWaitMs = maxWaitMs,
             now = { clock },
             pause = { clock += it; pauses += it },
             onBusy = { busyReports += it },
+            answeredBefore = answeredBefore,
         )
     }
 
@@ -77,6 +78,67 @@ class TsplCompletionTest {
 
         assertEquals(Ending.NoAnswer, result)
         assertEquals("it kept asking a printer that cannot answer", 3, scenario.asked)
+    }
+
+    /**
+     * What happened on a phone with continuous paper: connected, job written,
+     * and then three queries with nothing back - no early `00` at all - from a
+     * printer that had answered on the runs before it. Read as "never answers",
+     * it ended the wait after 8 s and marked the printer silent for every job
+     * after it.
+     */
+    @Test
+    fun `a printer that answered before the job and is quiet after it is busy, not silent`() {
+        val scenario = Scenario(List(40) { null } + listOf(0x00))
+
+        val result = runBlocking { scenario.run(answeredBefore = true) }
+
+        assertTrue("$result", result is Ending.Finished)
+        assertEquals("it gave up on a printer that had already answered", 41, scenario.asked)
+    }
+
+    @Test
+    fun `the same silence from a printer that never answered is still given up on`() {
+        // The case the new input must not swallow: nothing before the job, nothing
+        // after it.
+        val scenario = Scenario(List(5) { null })
+
+        val result = runBlocking { scenario.run(answeredBefore = false) }
+
+        assertEquals(Ending.NoAnswer, result)
+        assertEquals(3, scenario.asked)
+    }
+
+    @Test
+    fun `answering before the job does not count as having seen it busy`() {
+        // Idle is idle. A printer that answered ready before the job and answers
+        // ready every time since has not been shown to have taken anything.
+        val scenario = Scenario(listOf(0x00, 0x00, 0x00, 0x00))
+
+        val result = runBlocking { scenario.run(answeredBefore = true) }
+
+        assertTrue("$result", result is Ending.ReadyButNeverSeenBusy)
+    }
+
+    @Test
+    fun `a printer that answered before the job and then never speaks again times out, not finishes`() {
+        // Waiting is not unlimited just because it is no longer judged silent.
+        val scenario = Scenario(List(1000) { null })
+
+        val result = runBlocking { scenario.run(maxWaitMs = 60_000, answeredBefore = true) }
+
+        assertTrue("$result", result is Ending.TimedOut)
+    }
+
+    @Test
+    fun `a fault is still reported at once when the printer answered before the job`() {
+        // Long enough a silence that, were the pre-job answer ignored, the wait
+        // would already have given up before the fault arrived.
+        val scenario = Scenario(listOf(null, null, null, null, TsplStatus.PAPER_JAM))
+
+        val result = runBlocking { scenario.run(answeredBefore = true) }
+
+        assertEquals(Ending.Fault(TsplStatus.Fault.PAPER_JAM), result)
     }
 
     @Test
@@ -175,6 +237,45 @@ class TsplCompletionTest {
         TsplStatusMemory.markSilent(silent)
 
         assertFalse(TsplStatusMemory.answers(silent))
+        assertTrue(TsplStatusMemory.answers(talking))
+    }
+
+    /**
+     * A printer still taking in an earlier job - a label from the designer, the
+     * test page - does not answer the probe before the next job either. One
+     * quiet job from a printer that has talked before is a busy printer, and
+     * marking it silent would stop every later job in the process being
+     * confirmed.
+     */
+    @Test
+    fun `a printer that has answered is not marked silent by one job that got no answer`() {
+        val key = "bt:aa:bb:cc:dd:ee:03"
+        TsplStatusMemory.markAnswered(key)
+
+        TsplStatusMemory.markSilent(key)
+
+        assertTrue("a printer that had answered was written off", TsplStatusMemory.answers(key))
+    }
+
+    @Test
+    fun `a printer that has never answered is still marked silent`() {
+        // The other direction, so the guard above cannot become "never mark".
+        val key = "bt:aa:bb:cc:dd:ee:04"
+
+        TsplStatusMemory.markSilent(key)
+
+        assertFalse(TsplStatusMemory.answers(key))
+    }
+
+    @Test
+    fun `answering is remembered per printer, not for all of them`() {
+        val talking = "bt:aa:bb:cc:dd:ee:05"
+        val other = "bt:aa:bb:cc:dd:ee:06"
+        TsplStatusMemory.markAnswered(talking)
+
+        TsplStatusMemory.markSilent(other)
+
+        assertFalse("another printer's answer excused this one", TsplStatusMemory.answers(other))
         assertTrue(TsplStatusMemory.answers(talking))
     }
 }
