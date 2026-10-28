@@ -261,6 +261,32 @@ class Tspl(
     companion object {
         const val TEST_PICTURE_BYTES = 12
         const val TEST_PICTURE_HEIGHT = 48
+
+        /** The test page's heading, which [testPicturePlacement] has to keep clear of. */
+        const val TEST_HEADING = "POCKETPRINT TEST"
+
+        /** Built-in font "3" is 16 dots a character, and the heading starts at x = 20. */
+        private const val TEST_HEADING_RIGHT = 20 + TEST_HEADING.length * 16
+
+        /** Empty space wanted between the heading and a picture beside it. */
+        private const val TEST_PICTURE_CLEARANCE = 24
+
+        /**
+         * Where on the test page the compressed test picture can go without
+         * landing on anything else, or null if nowhere can.
+         *
+         * A tall label has room under the barcode. A short one has none, so the
+         * picture goes top right, beside the heading - and a label narrower than
+         * about 400 dots (38 x 25, 25 x 25 and 50 x 30 mm at 203 dpi) has no room
+         * there either: the picture used to be printed over the heading. The
+         * picture is an opt-in diagnostic, and a missing one is better than one
+         * that spoils the label it is meant to be read from.
+         */
+        fun testPicturePlacement(widthDots: Int, heightDots: Int): Pair<Int, Int>? {
+            if (heightDots >= 320) return 20 to 255
+            val x = widthDots - TEST_PICTURE_BYTES * 8 - 20
+            return if (x >= TEST_HEADING_RIGHT + TEST_PICTURE_CLEARANCE) x to 20 else null
+        }
     }
 
     fun build(): ByteArray = out.toByteArray()

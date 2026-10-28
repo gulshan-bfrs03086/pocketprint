@@ -369,7 +369,7 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
         val bytes = when (language) {
             PrintLanguage.TSPL -> Tspl(media, dpi, caps.compressedBitmaps).apply {
                 setup(printer.stock)
-                text(20, 20, "POCKETPRINT TEST", font = "3")
+                text(20, 20, Tspl.TEST_HEADING, font = "3")
                 text(20, 70, "TSPL  ${media.label}", font = "2")
                 text(20, 105, "${dpi} dpi  ${width} dots", font = "2")
                 barcode(20, 145, "POCKETPRINT", height = 60)
@@ -379,12 +379,16 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
                     // not decode it shows it here, on a test label, and not on
                     // somebody's real one. A framed box with a diagonal and a
                     // solid square at its top left means it works.
-                    if (media.dotsHigh(dpi) >= 320) {
-                        text(20, 225, "COMPRESSED PICTURE:", font = "2")
-                        testPicture(20, 255)
+                    val at = Tspl.testPicturePlacement(media.dotsWide(dpi), media.dotsHigh(dpi))
+                    if (at == null) {
+                        com.gulshan.pocketprint.print.Diagnostics.record(
+                            "TestPage",
+                            "no room for the compressed test picture on ${media.label}",
+                        )
                     } else {
-                        // A short label has no room under the barcode: top right.
-                        testPicture((media.dotsWide(dpi) - 96 - 20).coerceAtLeast(20), 20)
+                        // A tall label has the line of text above its picture.
+                        if (at.second > 20) text(20, 225, "COMPRESSED PICTURE:", font = "2")
+                        testPicture(at.first, at.second)
                     }
                 }
                 print(sets = 1, copies = 1)
