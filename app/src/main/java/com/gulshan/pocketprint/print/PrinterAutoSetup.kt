@@ -271,7 +271,7 @@ class PrinterAutoSetup(private val context: Context) {
         }
     }.flowOn(Dispatchers.IO)
 
-    private data class Detection(val language: PrintLanguage, val model: String?)
+    internal data class Detection(val language: PrintLanguage, val model: String?)
 
     /**
      * Works out which command language the printer is listening in.
@@ -295,7 +295,7 @@ class PrinterAutoSetup(private val context: Context) {
      * A printer that understands nothing here prints a couple of stray
      * characters on one label, which is far cheaper than a mis-detected one.
      */
-    private suspend fun detectLanguage(transport: PrinterTransport): Detection? {
+    internal suspend fun detectLanguage(transport: PrinterTransport): Detection? {
         // Drain anything volunteered on connect so it is not read as a reply.
         runCatching { transport.readAvailable(150) }
 

@@ -1,7 +1,6 @@
 package com.gulshan.pocketprint.print
 
 import android.content.Context
-import android.os.SystemClock
 import android.util.Log
 import com.gulshan.pocketprint.R
 import com.gulshan.pocketprint.ipp.IppCapabilityMapper
@@ -18,7 +17,6 @@ import com.gulshan.pocketprint.render.RenderPipeline
 import com.gulshan.pocketprint.render.RenderedDocument
 import com.gulshan.pocketprint.transport.PrinterTransport
 import com.gulshan.pocketprint.transport.TransportFactory
-import com.gulshan.pocketprint.transport.guardAgainstStall
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -34,6 +32,8 @@ class PrintEngine(
     private val context: Context,
     private val pipeline: RenderPipeline,
     private val ippClient: IppClient = IppClient(),
+    /** The words for a job's ending, apart so the ending can be tested without a Resources. */
+    private val string: (Int) -> String = { context.getString(it) },
 ) {
 
     companion object {
@@ -66,9 +66,6 @@ class PrintEngine(
          * behaviour there was to block forever with every queued job behind it.
          */
         private const val WRITE_STALL_MS = 60_000L
-
-        /** The longest to wait for a printer to finish a job: ten minutes. */
-        private const val TSPL_WAIT_CAP_MS = 10 * 60_000L
     }
 
     /**
@@ -80,7 +77,7 @@ class PrintEngine(
      * in the system. Saying so is the difference between a user who checks the
      * paper and a user who spends an evening on the command language.
      */
-    private fun unconfirmedReason(address: PrinterAddress): String = context.getString(
+    private fun unconfirmedReason(address: PrinterAddress): String = string(
         when (address) {
             is PrinterAddress.Bluetooth -> R.string.unconfirmed_bluetooth
             is PrinterAddress.Usb -> R.string.unconfirmed_usb
@@ -305,12 +302,18 @@ class PrintEngine(
         send(printer, rendered, jobName, options, listener)
     }.getOrElse { failureOf(it) }
 
+    /**
+     * Sends bytes the caller built itself. [language] is the dialect they are
+     * in: it is what decides whether the printer can be asked how the job went,
+     * and null means the caller does not know, so nothing is asked.
+     */
     suspend fun printRaw(
         printer: Printer,
         bytes: ByteArray,
         jobName: String,
         options: PrintOptions,
         listener: JobListener = JobListener(),
+        language: PrintLanguage? = null,
     ): PrintResult = runCatching {
         withContext(Dispatchers.IO) {
             val address = printer.address
@@ -344,15 +347,18 @@ class PrintEngine(
                 onPrinter(printer, listener) {
                     TransportFactory.create(context, printer).use { transport ->
                         transport.open()
-                        val sent = guardAgainstStall(
+                        // The same delivery a rendered document gets, so a label
+                        // from the designer, the test page or calibration is
+                        // confirmed, and its paper fault reported, like any other.
+                        val outcome = deliverSerial(
+                            transport = transport,
+                            printerKey = PrinterQueue.keyOf(printer),
+                            language = language,
+                            source = bytes.inputStream(),
                             stallMs = WRITE_STALL_MS,
-                            unblock = { runCatching { transport.close() } },
-                        ) { heartbeat ->
-                            transport.write(bytes) { heartbeat() }
-                        }
-                        // Must drain before use{} closes, or the tail is discarded.
-                        transport.finish()
-                        PrintResult.Sent(sent, reason = unconfirmedReason(address))
+                            onBusy = { waited -> reportWaiting(listener, waited) },
+                        )
+                        resultFor(outcome.ending, outcome.sent, unconfirmedReason(address))
                     }
                 }
             }
@@ -384,98 +390,8 @@ class PrintEngine(
         block = delivery,
     )
 
-    /**
-     * Waits for a TSPL printer to finish what it was just sent, by asking it.
-     * Returns null when asking is pointless: a printer already found not to
-     * answer, which is remembered so it costs one job and not every job.
-     *
-     * Never throws except to cancel: a printer that drops the link while being
-     * asked has told us nothing, and the job is still reported as sent.
-     */
-    private suspend fun waitForTsplEnd(
-        printer: Printer,
-        transport: PrinterTransport,
-        bytesSent: Long,
-        answeredBefore: Boolean,
-        listener: JobListener,
-    ): Ending? {
-        if (!asksStatus(printer)) return null
-
-        val key = PrinterQueue.keyOf(printer)
-
-        // Generous: assume it takes in 100 bytes a second, about half what was
-        // measured, plus half a minute. A job that is still busy after that is
-        // reported as such and not as lost.
-        val allowed = (bytesSent * 10L + 30_000L).coerceAtMost(TSPL_WAIT_CAP_MS)
-
-        val ending = try {
-            awaitTsplEnd(
-                ask = { askTsplStatus(transport)?.also { TsplStatusMemory.markAnswered(key) } },
-                maxWaitMs = allowed,
-                now = SystemClock::elapsedRealtime,
-                pause = { delay(it) },
-                onBusy = { waited ->
-                    listener.onStatus(context.getString(R.string.tspl_waiting_for_printer, waited / 1_000))
-                },
-                answeredBefore = answeredBefore,
-            )
-        } catch (cancel: kotlinx.coroutines.CancellationException) {
-            throw cancel
-        } catch (t: Exception) {
-            // The link went. Not remembered against the printer: it says nothing
-            // about whether it answers.
-            Log.i(TAG, "status wait ended early: ${t.message}")
-            Ending.LinkLost
-        }
-        if (ending is Ending.NoAnswer) TsplStatusMemory.markSilent(key)
-        return ending
-    }
-
-    /**
-     * Whether a TSPL job to [printer] is worth asking questions about at all.
-     *
-     * A network printer takes a job in at wire speed, and asking it costs every
-     * first job a few seconds: its transport's readAvailable does not wait for a
-     * reply to arrive. And a printer already found not to answer is remembered,
-     * so it costs one job and not every job.
-     */
-    private fun asksStatus(printer: Printer): Boolean =
-        printer.address !is PrinterAddress.Raw && TsplStatusMemory.answers(PrinterQueue.keyOf(printer))
-
-    /**
-     * Asks a TSPL printer for its status once, before the job is written, and says
-     * whether it answered.
-     *
-     * An idle printer answers within ~150 ms; one already taking a job in does not,
-     * and then cannot be told apart from one that never answers. So the answer
-     * that matters is taken while there is still nothing queued ahead of the
-     * question. Only *that* it answered is used: a fault bit here is left for the
-     * wait to report, which asks again once the job is out and gives a failure the
-     * same words whenever it is found.
-     *
-     * Never throws except to cancel. A link that is already dead is the write's to
-     * report, with its own message, a moment later.
-     */
-    private suspend fun answeredBeforeJob(printer: Printer, transport: PrinterTransport): Boolean {
-        if (!asksStatus(printer)) return false
-        return try {
-            val answered = askTsplStatus(transport) != null
-            if (answered) TsplStatusMemory.markAnswered(PrinterQueue.keyOf(printer))
-            answered
-        } catch (cancel: kotlinx.coroutines.CancellationException) {
-            throw cancel
-        } catch (t: Exception) {
-            Log.i(TAG, "status before the job failed: ${t.message}")
-            false
-        }
-    }
-
-    /** ESC ! ?, and the one byte that comes back; null if the printer says nothing. */
-    private suspend fun askTsplStatus(transport: PrinterTransport): Int? {
-        // Whatever an earlier query's answer left behind would be read as this one's.
-        transport.readAvailable(20)
-        transport.write(TsplStatus.QUERY)
-        return transport.readAvailable(700).firstOrNull()?.toInt()?.and(0xFF)
+    private fun reportWaiting(listener: JobListener, waitedMs: Long) {
+        listener.onStatus(context.getString(R.string.tspl_waiting_for_printer, waitedMs / 1_000))
     }
 
     /**
@@ -489,7 +405,7 @@ class PrintEngine(
     private fun resultFor(ending: Ending?, sent: Long, unconfirmed: String): PrintResult = when (ending) {
         is Ending.Finished -> PrintResult.Completed(sent)
         is Ending.Fault -> PrintResult.Failure(
-            context.getString(
+            string(
                 when (ending.fault) {
                     TsplStatus.Fault.PAPER_EMPTY -> R.string.tspl_fault_paper_empty
                     TsplStatus.Fault.PAPER_JAM -> R.string.tspl_fault_paper_jam
@@ -498,9 +414,9 @@ class PrintEngine(
             ),
         )
         is Ending.ReadyButNeverSeenBusy ->
-            PrintResult.Sent(sent, reason = context.getString(R.string.tspl_ready_not_busy))
+            PrintResult.Sent(sent, reason = string(R.string.tspl_ready_not_busy))
         is Ending.NeedsAttention ->
-            PrintResult.Sent(sent, reason = context.getString(R.string.tspl_needs_attention))
+            PrintResult.Sent(sent, reason = string(R.string.tspl_needs_attention))
         is Ending.TimedOut ->
             PrintResult.Sent(sent, reason = context.getString(R.string.tspl_still_busy, ending.waitedMs / 1_000))
         is Ending.NoAnswer, is Ending.LinkLost, null -> PrintResult.Sent(sent, reason = unconfirmed)
@@ -568,41 +484,21 @@ class PrintEngine(
                 withContext(Dispatchers.IO) {
                     TransportFactory.create(context, printer).use { transport ->
                         transport.open()
-                        // Asked while the printer is idle: once the job is in it
-                        // may stay silent for minutes, and silence is all there
-                        // would be to go on.
-                        val answeredBefore = rendered.language == PrintLanguage.TSPL &&
-                            answeredBeforeJob(printer, transport)
                         // Copies are already baked into the payload by this point:
                         // TSPL via PRINT, ZPL via ^PQ, ESC/POS by repeating the page,
                         // PCL via ESC&l#X. So the stream goes out exactly once.
-                        //
-                        // Closing the transport is what unblocks a write stuck
-                        // in a syscall, for a stall and for a cancellation
-                        // alike; cancelling the coroutine on its own would not.
-                        val sent = guardAgainstStall(
+                        val outcome = deliverSerial(
+                            transport = transport,
+                            printerKey = PrinterQueue.keyOf(printer),
+                            language = rendered.language,
+                            source = rendered.file.inputStream(),
                             stallMs = WRITE_STALL_MS,
-                            unblock = { runCatching { transport.close() } },
-                        ) { heartbeat ->
-                            transport.write(rendered.file.inputStream()) { written ->
-                                heartbeat()
-                                listener.onProgress(written, total)
-                            }
-                        }
-
-                        // A TSPL printer says when it is busy, and that is the
-                        // nearest thing to "done" a serial printer has. Waiting
-                        // for it also stops a second press of Print queueing a
-                        // second copy behind a first that is still on its way.
-                        val ending = if (rendered.language == PrintLanguage.TSPL) {
-                            waitForTsplEnd(printer, transport, sent, answeredBefore, listener)
-                        } else {
-                            null
-                        }
-                        // The fixed linger is for when the printer could not say
-                        // it had finished; once it has, or is reporting a fault,
-                        // there is nothing left in flight to wait for.
-                        if (ending !is Ending.Finished && ending !is Ending.Fault) transport.finish()
+                            onProgress = { written -> listener.onProgress(written, total) },
+                            onBusy = { waited -> reportWaiting(listener, waited) },
+                        )
+                        val sent = outcome.sent
+                        val ending = outcome.ending
+                        val answeredBefore = outcome.answeredBefore
 
                         Diagnostics.record(
                             TAG,

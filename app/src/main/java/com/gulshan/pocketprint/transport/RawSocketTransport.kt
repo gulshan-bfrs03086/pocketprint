@@ -22,6 +22,11 @@ class RawSocketTransport(
     private val context: Context? = null,
 ) : PrinterTransport {
 
+    private companion object {
+        /** After a reply has started to arrive, how long a pause means it is complete. */
+        const val REPLY_GAP_MS = 60L
+    }
+
     private var socket: Socket? = null
     private var out: OutputStream? = null
 
@@ -71,21 +76,56 @@ class RawSocketTransport(
         kotlinx.coroutines.delay(200)
     }
 
+    /**
+     * Waits up to [timeoutMs] for the printer to say something, like the other
+     * transports do.
+     *
+     * This used to look at what had already arrived and return at once. A reply
+     * to a query written a moment earlier has not crossed the network yet, so it
+     * came back empty every time - and silence is read as an answer ("not
+     * TSPL", "not answering"), which made every Raw printer look mute.
+     *
+     * Reads with a socket timeout rather than polling available(): on a socket
+     * available() is 0 once the peer has hung up, so polling cannot tell a
+     * closed printer from a quiet one, and read() returning -1 can. It returns
+     * once a reply has arrived and a short gap has passed with nothing more,
+     * since a multi-line status reply comes in pieces. Same distinction as
+     * RFCOMM: nothing to say is empty, a closed peer with nothing collected
+     * throws.
+     */
     override suspend fun readAvailable(timeoutMs: Long): ByteArray = withContext(Dispatchers.IO) {
         val s = socket ?: return@withContext ByteArray(0)
-        val read = try {
-            s.soTimeout = timeoutMs.toInt().coerceAtLeast(1)
+        val collected = java.io.ByteArrayOutputStream()
+        var ended = false
+        val deadline = System.currentTimeMillis() + timeoutMs
+        try {
             val input = s.getInputStream()
-            val available = input.available()
-            if (available <= 0) return@withContext ByteArray(0)
-            val buf = ByteArray(available.coerceAtMost(4096))
-            val n = input.read(buf)
-            // Same distinction as RFCOMM: 0 is nothing to say, -1 is gone.
-            if (n < 0) null else buf.copyOf(n.coerceAtLeast(0))
+            val buf = ByteArray(4096)
+            while (true) {
+                val remaining = deadline - System.currentTimeMillis()
+                if (remaining <= 0) break
+                // Once something has arrived, only a brief wait for the rest of it.
+                s.soTimeout = (if (collected.size() > 0) remaining.coerceAtMost(REPLY_GAP_MS) else remaining)
+                    .toInt().coerceAtLeast(1)
+                val n = try {
+                    input.read(buf)
+                } catch (_: java.net.SocketTimeoutException) {
+                    break
+                }
+                if (n < 0) {
+                    ended = true
+                    break
+                }
+                collected.write(buf, 0, n)
+            }
         } catch (_: Throwable) {
-            ByteArray(0)
+            // A read error is best effort, as it always was; only a clean end of
+            // stream carries the meaning described above.
         }
-        read ?: throw TransportException("The printer closed the connection")
+        if (ended && collected.size() == 0) {
+            throw TransportException("The printer closed the connection")
+        }
+        collected.toByteArray()
     }
 
     override fun close() {
