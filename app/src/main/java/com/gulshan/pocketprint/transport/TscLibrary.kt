@@ -18,6 +18,18 @@ interface TscLibrary {
     /** Opens a secure RFCOMM connection. `"1"` on success, `"-1"` on any failure. */
     fun openport(mac: String): String
 
+    /**
+     * The connection [openport] makes, without the `cancelDiscovery()` it makes
+     * first - which from Android 12 needs a scan permission this app does not hold.
+     * The socket is connected by PocketPrint and handed to the library (see
+     * [TscPortHandover]); everything after that is the library's own.
+     *
+     * `"1"` or `"-1"` as for [openport], or null when this copy of the library cannot
+     * be handed a socket (its fields are not the ones expected), which the caller
+     * reports rather than guessing.
+     */
+    fun openportWithoutDiscoveryCancel(mac: String): String?
+
     /** One plain write of [bytes]. `"1"` on success, `"-1"` on failure. */
     fun sendcommand(bytes: ByteArray): String
 

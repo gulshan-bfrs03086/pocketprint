@@ -240,7 +240,9 @@ to choose between:
 
 It asks for no location permission, and none to scan. (On Android 11 and older it also declares
 the install-time `BLUETOOTH_ADMIN`, which those versions require to cancel a discovery or start
-pairing; it prompts for nothing.) Pairing goes through Android's own
+pairing; it prompts for nothing.) That holds with TSC's optional library too: on Android 12 and
+newer the app connects the printer itself and hands the connection to the library, rather than
+asking to scan for the library's sake (see [docs/TSC_SDK.md](docs/TSC_SDK.md)). Pairing goes through Android's own
 companion device picker, which scans on the app's behalf — an app that does not scan does not
 need permission to. Earlier versions carried `ACCESS_FINE_LOCATION`, because a Bluetooth scan
 below API 31 required it, which is how this app once became uninstallable on a rugged terminal

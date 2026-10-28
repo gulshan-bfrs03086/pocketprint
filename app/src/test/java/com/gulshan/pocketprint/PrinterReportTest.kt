@@ -126,6 +126,20 @@ class PrinterReportTest {
         assertTrue(healthy.contains("unrestricted"))
     }
 
+    /**
+     * TSC's library is optional and supplied by whoever builds the app, so two APKs
+     * of one version can differ by it; the report is where that has to show.
+     */
+    @Test
+    fun `the report says whether this build includes TSC's library`() {
+        val with = PrinterReport.build(printer, emptyList(), tscLibraryBundled = true)
+        val without = PrinterReport.build(printer, emptyList(), tscLibraryBundled = false)
+
+        assertTrue(with.contains("includes TSC's library"))
+        assertTrue(without.contains("without TSC's library"))
+        assertFalse(without.contains("includes TSC's library"))
+    }
+
     @Test
     fun `the report warns before it is pasted anywhere`() {
         // It carries document names, which are the user's business.
