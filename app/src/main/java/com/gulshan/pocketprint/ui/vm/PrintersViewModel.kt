@@ -418,7 +418,7 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
             }.build()
         }
 
-        printRawLabel(printer, bytes, "Test page").join()
+        printRawLabel(printer, bytes, "Test page", language).join()
     }
 
     fun addManualPrinter(
@@ -570,7 +570,12 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
      * stopping with nothing on screen to stop. Same reasoning, and the same
      * shape, as [PrintForegroundService] uses for a document.
      */
-    fun printRawLabel(printer: Printer, bytes: ByteArray, name: String): Job {
+    fun printRawLabel(
+        printer: Printer,
+        bytes: ByteArray,
+        name: String,
+        language: PrintLanguage? = null,
+    ): Job {
         val app = getApplication<android.app.Application>()
         val jobId = java.util.UUID.randomUUID().toString()
         val startedAt = System.currentTimeMillis()
@@ -607,7 +612,8 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
             val result = try {
                 engine.printRaw(
                     printer, bytes, name, _options.value,
-                    JobListener(
+                    language = language,
+                    listener = JobListener(
                         onStatus = { status ->
                             _labelStatus.value = app.getString(
                                 R.string.notification_printer_status, printer.displayName, status,
@@ -703,7 +709,8 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
         val media = printer.capabilities.mediaSizes.firstOrNull() ?: MediaSize.LABEL_4X6
         val dpi = printer.capabilities.resolutionsDpi.firstOrNull() ?: 203
 
-        val bytes = when (printer.capabilities.languages.firstOrNull()) {
+        val language = printer.capabilities.languages.firstOrNull()
+        val bytes = when (language) {
             PrintLanguage.TSPL -> Tspl(media, dpi).calibrate(printer.stock).build()
             PrintLanguage.ZPL -> Zpl(media, dpi).calibrate(printer.stock).build()
             else -> {
@@ -712,7 +719,7 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
                 return@launch
             }
         }
-        printRawLabel(printer, bytes, "Calibrate")
+        printRawLabel(printer, bytes, "Calibrate", language)
     }
 
     fun clearJobsMessage() { _jobsMessage.value = null }

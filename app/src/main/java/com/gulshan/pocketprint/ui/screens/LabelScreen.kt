@@ -203,7 +203,9 @@ fun LabelScreen(viewModel: PrintersViewModel) {
                     barcodeData = barcode,
                     receiptWidthDots = printer.capabilities.rasterWidthDots ?: 576,
                 )
-                viewModel.printRawLabel(printer, bytes, context.getString(R.string.label_job_name))
+                viewModel.printRawLabel(
+                    printer, bytes, context.getString(R.string.label_job_name), language,
+                )
             },
             modifier = Modifier
                 .fillMaxWidth()
