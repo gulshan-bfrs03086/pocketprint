@@ -266,7 +266,7 @@ class RenderPipeline(
                 pdf.file, dpi = dpi, targetWidthPx = width, pageRange = options.pageRange,
             ) { _, bitmap ->
                 val builder = EscPos(width).initialize()
-                    .image(bitmap, dither = options.dither).cut()
+                    .image(bitmap, dither = options.dither, skipBlankDpi = dpi).cut()
                 buffer.write(builder.build())
                 pages++
             }
