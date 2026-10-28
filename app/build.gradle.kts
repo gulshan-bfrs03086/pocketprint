@@ -315,6 +315,46 @@ tasks.matching { it.name == "packageRelease" }.configureEach {
     }
 }
 
+/**
+ * Refuses a release build that contains TSC's library until whoever builds it says
+ * they have checked they may distribute it.
+ *
+ * tscsdk.jar comes with TSC's SDK and no licence terms, so nothing in this
+ * repository can say whether an APK containing it may be handed to anyone. A
+ * release is the build that gets handed out; this makes including the jar in one a
+ * decision somebody states (-PtscSdkRedistributionConfirmed=true) rather than
+ * something that happens because the jar was left in app/libs. It decides nothing
+ * legal, and says so. Debug builds, the documented way to try the library, are
+ * not affected, and neither is a release without the jar - which is what CI builds.
+ *
+ * On a release task, for the reason the signing check above is: a require() at
+ * configuration time would fail `assembleDebug` too.
+ */
+val tscSdkRedistributionConfirmed =
+    providers.gradleProperty("tscSdkRedistributionConfirmed").orNull?.toBoolean() == true
+
+tasks.matching { it.name == "preReleaseBuild" }.configureEach {
+    val bundled = tscSdkBundled
+    val confirmed = tscSdkRedistributionConfirmed
+    val jar = tscSdkJar.asFile.path
+    doFirst {
+        if (!bundled || confirmed) return@doFirst
+        throw GradleException(
+            """
+            This release build includes TSC's library ($jar).
+
+            The library ships with no licence terms, so this repository cannot say
+            whether an APK containing it may be distributed. Check that with TSC
+            first; see "Before you distribute" in docs/TSC_SDK.md.
+
+            Once you have, say so:  -PtscSdkRedistributionConfirmed=true
+            Or build the release without it: remove app/libs/tscsdk.jar, or do not
+            pass -PtscSdkJar.
+            """.trimIndent(),
+        )
+    }
+}
+
 dependencies {
     coreLibraryDesugaring(libs.desugar.jdk.libs)
 

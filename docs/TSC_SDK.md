@@ -22,7 +22,29 @@ With the jar, `src/tscsdk` is compiled and the TSC option appears in the app.
 Without it, `src/notscsdk` is compiled instead and nothing offers the option. A printer
 that was saved to use it can still be freed from *Printer settings*, and says so when a
 job is sent. `BuildConfig.TSC_SDK_BUNDLED`
-tells you which you have.
+tells you which you have, and so does the *App* line of a printer report
+("includes TSC's library" or "without TSC's library").
+
+## Before you distribute
+
+Facts, not legal advice:
+
+- `tscsdk.jar` comes in TSC's SDK download with no licence file and no licence
+  terms that we have found. Nothing in this repository grants or claims a right to
+  redistribute it.
+- An APK built with it contains the library's classes (renamed and shrunk by R8 in a
+  release build), so handing that APK to anyone hands them TSC's code.
+- PocketPrint's own licence (`LICENSE`) covers PocketPrint's code, not TSC's.
+
+So before an APK with the jar goes to anyone else, check with TSC that this is
+allowed. The build makes that a stated decision: a **release** build that includes
+the jar fails unless you pass `-PtscSdkRedistributionConfirmed=true`, with a
+message pointing here. Debug builds, and release builds without the jar (which is
+what CI builds), are not affected.
+
+    ./gradlew assembleRelease -PtscSdkJar=/path/to/tscsdk.jar -PtscSdkRedistributionConfirmed=true
+
+The flag records that someone said they checked; it does not check anything.
 
 ## Using it
 
@@ -43,14 +65,46 @@ build. It is not only for the library: the app's own transports call
 `cancelDiscovery()` and `createBond()` too, inside `runCatching`, so until the line
 existed those calls failed silently on Android 11 and older.
 
-On **Android 12 and newer** the same call needs `BLUETOOTH_SCAN`, a runtime
-permission this app deliberately does not hold. A printer set to the TSC library
-there fails with a message saying so and to set it back to Automatic. Supporting it
-means deciding to ask for scan permission, which is a promise to change on purpose.
-
 The first hardware print through the library failed exactly this way: the job
 ended in an instant with "Need BLUETOOTH ADMIN permission" and no Bluetooth traffic
 at all.
+
+On **Android 12 and newer** the same call needs `BLUETOOTH_SCAN`, a runtime
+permission this app deliberately does not hold, and every `openport` variant in the
+library makes it. So there the app does not call `openport`. It does what `openport`
+does, read from the library's bytecode, minus that one call: a secure RFCOMM socket
+to the serial-port UUID, connected, which needs only the `BLUETOOTH_CONNECT` every
+Bluetooth printer already needs. It then puts the socket and its two streams into
+the library's private `btSocket`, `OutStream` and `InStream` fields and sets
+`IsConnected` (`TscPortHandover`). The calls the app uses afterwards -
+`sendcommand`, `status`, `printername`, `closeport` - read nothing else, so from
+there on the library works as if it had connected itself. `proguard-rules.pro`
+keeps the four field names through R8.
+
+So the library costs **no permission of its own** on any version, and nothing
+changes for anyone who never picks it.
+
+Why not ask for `BLUETOOTH_SCAN` instead (with `neverForLocation`, requested only
+when a printer is set to the library)? It would work, but it adds a declared
+permission to every install, a prompt, and a denial path, all to let a library call
+`cancelDiscovery()` - which matters only if something is scanning, and this app
+never scans. Catching the refusal does not help either: `openport` throws before it
+dials, so there is no connection to keep.
+
+What is checked, and what is not:
+
+- `TscPortHandoverTest` checks, against the real jar when the build has it, that
+  the fields are there, and that the library's own `sendcommand` and `status` then
+  write to and read from the streams it was handed.
+- `TscSdkTransportTest` checks which path is taken on which version, and the errors.
+- It has **not** been run on an Android 12+ device with a TSC printer.
+
+If a different `tscsdk.jar` does not have those fields, a printer set to the library
+fails on Android 12+ with a message saying this copy of the library cannot be used
+there and to set it back to Automatic. If `BLUETOOTH_CONNECT` (*Nearby devices*) is
+not granted, a job fails at once - before the library is made - saying where to
+turn it on; a job runs in a service, where no prompt can be shown, and the app's
+Printers screen is where it is asked for.
 
 ## What it is, and what it is not
 
@@ -103,7 +157,9 @@ as "ready".
   ends the job as a lost link rather than waiting out a printer that is not there.
 - **`openport` cannot be interrupted.** A job cancelled while it connects still gets
   a connected socket back. The library object is stored *before* dialling, so the
-  `close()` the engine always makes reaches it.
+  `close()` the engine always makes reaches it. (The library's `closeport` closes
+  only a socket that finished connecting; on Android 12+, where the app made the
+  socket, `close()` also closes one still dialling, which ends the dial.)
 
 ## Two library calls that are not used, and why
 
