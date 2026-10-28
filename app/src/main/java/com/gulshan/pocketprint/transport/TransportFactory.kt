@@ -25,8 +25,16 @@ object TransportFactory {
                 BtLink.BLE -> BleTransport(context.applicationContext, a)
                 BtLink.AUTO -> AutoBluetoothTransport(context.applicationContext, a)
                 // TSC's library, when this build has it. Without it TscSdk says so
-                // the first time it is asked, which is when the job is sent.
-                BtLink.TSC_SDK -> TscSdkTransport(a.mac, TscSdk::library)
+                // the first time it is asked, which is when the job is sent. The
+                // permission is the one every Bluetooth printer needs; nothing
+                // about the TSC library asks for more.
+                BtLink.TSC_SDK -> TscSdkTransport(
+                    a.mac,
+                    TscSdk::library,
+                    hasConnectPermission = {
+                        BluetoothTransport.hasConnectPermission(context.applicationContext)
+                    },
+                )
             }
             is PrinterAddress.Usb -> UsbTransport(context.applicationContext, a)
             is PrinterAddress.Ipp -> throw TransportException(

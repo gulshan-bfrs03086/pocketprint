@@ -52,10 +52,12 @@
          is how this was found: a print through it failed at once with "Need
          BLUETOOTH ADMIN permission", before any Bluetooth traffic.
 
-         The app still does not scan. From Android 12 the same call needs
-         BLUETOOTH_SCAN, a runtime permission this app deliberately does not hold,
-         so connecting through the TSC library is for Android 11 and older until
-         that is decided; the app says so rather than failing silently. -->
+         The app still does not scan, and there is still no BLUETOOTH_SCAN. From
+         Android 12 the library's cancelDiscovery() would need it, so there the app
+         does not call the library's openport at all: it connects the socket itself,
+         which needs only BLUETOOTH_CONNECT above, and hands it to the library
+         (TscPortHandover). The TSC library therefore costs no permission of its
+         own on any version. -->
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN"
         android:maxSdkVersion="30" />
 

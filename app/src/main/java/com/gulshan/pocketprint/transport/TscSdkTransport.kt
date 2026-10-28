@@ -1,5 +1,6 @@
 package com.gulshan.pocketprint.transport
 
+import android.os.Build
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -34,6 +35,20 @@ import java.util.concurrent.atomic.AtomicReference
  * [libraryFactory] is called in [open], on the main thread: the library's class
  * is an Activity, and constructing one builds a Handler, which throws on a
  * thread with no Looper - and everything else here runs on a background one.
+ *
+ * How it connects depends on the Android version, and only on that.
+ * [skipDiscoveryCancel] is true from Android 12: there the library's own
+ * `openport` cannot work for this app, because its first act is a
+ * `cancelDiscovery()` that needs BLUETOOTH_SCAN, which the app does not hold.
+ * So the socket is connected by the app and handed to the library
+ * ([TscLibrary.openportWithoutDiscoveryCancel]), which needs only the
+ * BLUETOOTH_CONNECT every Bluetooth printer already needs. On Android 11 and
+ * older `openport` is used as it is, because the install-time BLUETOOTH_ADMIN
+ * covers its cancelDiscovery() there.
+ *
+ * [hasConnectPermission] is checked before anything else. A job runs in a
+ * service, where nothing can ask for a permission, so a missing one fails at
+ * once with a message that says where to grant it.
  */
 class TscSdkTransport(
     private val mac: String,
@@ -42,6 +57,8 @@ class TscSdkTransport(
     private val onMainThread: suspend (() -> TscLibrary) -> TscLibrary = { make ->
         withContext(Dispatchers.Main) { make() }
     },
+    private val skipDiscoveryCancel: Boolean = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S,
+    private val hasConnectPermission: () -> Boolean = { true },
 ) : PrinterTransport {
 
     /**
@@ -56,6 +73,7 @@ class TscSdkTransport(
     override val description get() = "tsc://$mac"
 
     override suspend fun open() {
+        if (!hasConnectPermission()) throw noConnectPermission()
         val lib = onMainThread(libraryFactory)
         // Held before dialling, not after. openport is a blocking call that cannot
         // be interrupted: a job cancelled while it connects still gets a connected
@@ -65,16 +83,35 @@ class TscSdkTransport(
         // reaches it, whatever openport did, including a half-made socket.
         library.set(lib)
         val result = try {
-            withContext(Dispatchers.IO) { lib.openport(mac) }
+            withContext(Dispatchers.IO) {
+                if (skipDiscoveryCancel) lib.openportWithoutDiscoveryCancel(mac) else lib.openport(mac)
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: SecurityException) {
-            // The library asks for a permission before it dials, and does not catch it.
+            throw if (skipDiscoveryCancel) {
+                // Our own connect, refused: BLUETOOTH_CONNECT was revoked between the
+                // check above and the dial.
+                noConnectPermission(e)
+            } else {
+                // The library asks for BLUETOOTH_ADMIN before it dials, and does not
+                // catch the refusal. The manifest declares it, so this is a device
+                // that does not honour that.
+                TransportException(
+                    "Android refused the TSC library a Bluetooth permission: ${e.message}. " +
+                        "Set this printer back to Automatic to print through PocketPrint's " +
+                        "own Bluetooth.",
+                    e,
+                )
+            }
+        }
+        if (result == null) {
             throw TransportException(
-                "Android refused the TSC library a Bluetooth permission: ${e.message}. " +
-                    "On Android 12 and newer it needs the Nearby devices (scan) permission, " +
-                    "which PocketPrint does not ask for - set this printer back to Automatic.",
-                e,
+                "This copy of TSC's library cannot be used on Android 12 and newer: PocketPrint " +
+                    "connects the printer itself there and hands the connection to the library, " +
+                    "and this version of the library is not laid out the way that needs. Set " +
+                    "this printer back to Automatic, or build with the tscsdk.jar described in " +
+                    "docs/TSC_SDK.md.",
             )
         }
         if (result != OK) {
@@ -144,6 +181,17 @@ class TscSdkTransport(
     override fun close() {
         library.getAndSet(null)?.let { runCatching { it.closeport(0) } }
     }
+
+    /**
+     * Worded so JobError recognises it ("permission" and "Bluetooth"), and says where
+     * the switch is, because a job cannot show the prompt itself.
+     */
+    private fun noConnectPermission(cause: Throwable? = null) = TransportException(
+        "PocketPrint does not have the Bluetooth permission it needs to connect to $mac. " +
+            "Allow Nearby devices on PocketPrint's Printers screen, or in Android Settings > " +
+            "Apps > PocketPrint > Permissions.",
+        cause,
+    )
 
     /**
      * The library's "-1" on a question: the connection is gone. Thrown, not read

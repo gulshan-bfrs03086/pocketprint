@@ -1,6 +1,7 @@
 package com.gulshan.pocketprint
 
 import com.gulshan.pocketprint.print.Ending
+import com.gulshan.pocketprint.print.JobError
 import com.gulshan.pocketprint.print.TsplStatus
 import com.gulshan.pocketprint.print.awaitTsplEnd
 import com.gulshan.pocketprint.transport.TransportException
@@ -62,6 +63,18 @@ class TscSdkTransportTest {
             openThrows?.let { throw it }
             return openResult
         }
+
+        /** What the Android 12+ path returns; null is a jar that cannot be handed a socket. */
+        var handoverResult: String? = "1"
+        var handedOver: String? = null
+
+        override fun openportWithoutDiscoveryCancel(mac: String): String? {
+            handedOver = mac
+            entered.countDown()
+            gate?.await()
+            openThrows?.let { throw it }
+            return handoverResult
+        }
         override fun sendcommand(bytes: ByteArray): String { sent += bytes; return sendResult }
         override fun status(waitMs: Int): String {
             statusAsked++
@@ -81,6 +94,16 @@ class TscSdkTransportTest {
 
     private fun transport(lib: FakeTsc) =
         TscSdkTransport(mac, libraryFactory = { lib }, onMainThread = { it() })
+
+    /** The transport as Android 12 and newer build it. */
+    private fun modern(lib: FakeTsc, permitted: Boolean = true, made: () -> Unit = {}) =
+        TscSdkTransport(
+            mac,
+            libraryFactory = { made(); lib },
+            onMainThread = { it() },
+            skipDiscoveryCancel = true,
+            hasConnectPermission = { permitted },
+        )
 
     private fun opened(lib: FakeTsc) = transport(lib).also { runBlocking { it.open() } }
 
@@ -137,6 +160,136 @@ class TscSdkTransportTest {
         t.close(); t.close()
         // Closed once, like any failed open: the library was held before it dialled,
         // so whatever it left behind is cleaned up, and a second close is nothing.
+        assertEquals(listOf(0), lib.closes)
+    }
+
+    // -- Android 12 and newer ------------------------------------------------
+
+    /**
+     * Every openport in the library calls cancelDiscovery() first, which from
+     * Android 12 needs BLUETOOTH_SCAN - a permission this app does not hold. So
+     * there the app connects and hands the socket over, and openport is never called.
+     */
+    @Test
+    fun `on Android 12 and newer it connects without the library's openport`() {
+        val lib = FakeTsc()
+        val t = modern(lib)
+
+        runBlocking { t.open() }
+
+        assertEquals(mac, lib.handedOver)
+        assertNull("openport would ask for a scan permission the app does not hold", lib.opened)
+    }
+
+    @Test
+    fun `on Android 11 and older it still opens through the library's own openport`() {
+        val lib = FakeTsc()
+
+        runBlocking { transport(lib).open() }
+
+        assertEquals(mac, lib.opened)
+        assertNull(lib.handedOver)
+    }
+
+    @Test
+    fun `a connection opened the Android 12 way is used like any other`() {
+        val lib = FakeTsc(words = listOf("Ready"))
+        val t = modern(lib).also { runBlocking { it.open() } }
+
+        assertEquals(0x00, t.askStatus())
+        runBlocking { t.write(ByteArray(10)) }
+        t.close()
+
+        assertEquals(1, lib.sent.size)
+        assertEquals(listOf(0), lib.closes)
+    }
+
+    @Test
+    fun `a failed connect the Android 12 way reads like the library's own -1`() {
+        val lib = FakeTsc().apply { handoverResult = "-1" }
+        val t = modern(lib)
+
+        try {
+            runBlocking { t.open() }
+            fail("opening should have failed")
+        } catch (e: TransportException) {
+            assertTrue(e.message, "-1" in e.message!! && "paired" in e.message!!)
+        }
+        t.close(); t.close()
+        assertEquals(listOf(0), lib.closes)
+    }
+
+    /**
+     * A tscsdk.jar whose fields are not the ones the handover writes: said plainly,
+     * with the way out, rather than failing later inside the library.
+     */
+    @Test
+    fun `a library that cannot be handed a socket says so and what to do`() {
+        val lib = FakeTsc().apply { handoverResult = null }
+
+        try {
+            runBlocking { modern(lib).open() }
+            fail("opening should have failed")
+        } catch (e: TransportException) {
+            assertTrue(e.message, "Android 12" in e.message!! && "Automatic" in e.message!!)
+        }
+    }
+
+    /**
+     * A job runs in a service, where no permission prompt can be shown, so a missing
+     * BLUETOOTH_CONNECT fails at once - before the library is even made - and in words
+     * JobError explains and that say where to turn it on.
+     */
+    @Test
+    fun `without the Bluetooth permission it fails at once and says where to grant it`() {
+        val lib = FakeTsc()
+        var made = 0
+        val t = modern(lib, permitted = false, made = { made++ })
+
+        try {
+            runBlocking { t.open() }
+            fail("opening should have failed")
+        } catch (e: TransportException) {
+            assertTrue(e.message, "Nearby devices" in e.message!! && "Settings" in e.message!!)
+            assertEquals(R.string.job_error_bluetooth_permission, JobError.explain(e.message))
+        }
+        t.close()
+        assertEquals("the library should not have been made", 0, made)
+        assertNull(lib.handedOver)
+        assertTrue(lib.closes.isEmpty())
+    }
+
+    @Test
+    fun `a connect refused for the permission the Android 12 way is the same clear error`() {
+        val lib = FakeTsc(openThrows = SecurityException("Need android.permission.BLUETOOTH_CONNECT"))
+        val t = modern(lib)
+
+        try {
+            runBlocking { t.open() }
+            fail("opening should have failed")
+        } catch (e: TransportException) {
+            assertTrue(e.message, "Nearby devices" in e.message!!)
+            assertEquals(R.string.job_error_bluetooth_permission, JobError.explain(e.message))
+        }
+        t.close()
+        assertEquals(listOf(0), lib.closes)
+    }
+
+    @Test
+    fun `a connect cancelled while dialling the Android 12 way is still closed`() {
+        val gate = CountDownLatch(1)
+        val lib = FakeTsc(gate = gate)
+        val t = modern(lib)
+
+        runBlocking {
+            val job = launch(Dispatchers.Default) { t.open() }
+            withContext(Dispatchers.IO) { lib.entered.await() }
+            job.cancel()
+            gate.countDown()
+            job.join()
+        }
+        t.close()
+
         assertEquals(listOf(0), lib.closes)
     }
 
