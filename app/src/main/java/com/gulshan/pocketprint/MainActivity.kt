@@ -11,6 +11,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.gulshan.pocketprint.printservice.PrintServiceRebind
 import com.gulshan.pocketprint.ui.AppNav
 import com.gulshan.pocketprint.ui.screens.FirstRunScreen
 import com.gulshan.pocketprint.ui.theme.PocketPrintTheme
@@ -49,6 +50,12 @@ class MainActivity : ComponentActivity() {
         // intent it was first launched by, and answering that again would
         // scroll somebody back to the setup card they had already left.
         if (savedInstanceState == null) noteHowLaunched(intent)
+
+        // Opening the app is the one moment it can repair the system print
+        // framework's binding to it, if a stop or an update left that binding
+        // dead - see Rebind. Not on a rotation: nothing has changed since the
+        // first time.
+        if (savedInstanceState == null) PrintServiceRebind.onUserLaunch(this)
 
         setContent {
             PocketPrintTheme {

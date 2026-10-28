@@ -322,13 +322,20 @@ how the app tells it from the launcher; `AddPrintersEntryTest` keeps the manifes
 `print_service.xml` and the code agreeing on it.
 
 If another app's print dialog, or Settings → Printing → PocketPrint, sits on "Searching for
-printers" and never lists a printer you can see saved in PocketPrint, switch the PocketPrint print
-service **off and on** there. That has fixed it every time it was seen: once, on a test device,
-after the app had been reinstalled over itself and swiped away, when the system was left holding a
-dead connection to the service and never started it again. It has not been reproduced since (on
-the same device: reinstalling while idle, reinstalling while the print dialog was connected, and
-swiping the app out of recents all reconnected on their own), so there is no workaround in the app
-for it, only this.
+printers" and never lists a printer you can see saved in PocketPrint, **open PocketPrint**, wait
+about half a minute, and try again. If that does not do it, switch the PocketPrint print service
+**off and on** there.
+
+Both fix the same thing, reproduced on a zltd N7L (Android 9). When PocketPrint has been
+force-stopped, or installed and never opened, that ROM holds the print dialog's connection to it
+without starting the app; opening the app lets it through. If the app is force-stopped again or
+updated while the connection is still held, Android 9's print system is left believing it is still
+connecting, and never tries again — force-stopping the app makes no difference, and only
+recreating the service clears it. So when PocketPrint is opened after it may have been stopped, it
+switches its own print service off for fifteen seconds and back on, which recreates it the same way
+the Settings switch does. The fifteen seconds matter: Android only tells the print system about the
+change about ten seconds later, so a quicker off-and-on changes nothing, which is why an earlier
+attempt at this appeared not to help. PocketPrint is missing from print dialogs for those seconds.
 
 PocketPrint asks for nothing on first launch. Each permission is requested at the moment it is
 needed: Bluetooth when you set up a printer, notifications when you print. If one has been
