@@ -32,6 +32,8 @@ class PrintEngine(
     private val context: Context,
     private val pipeline: RenderPipeline,
     private val ippClient: IppClient = IppClient(),
+    /** The words for a job's ending, apart so the ending can be tested without a Resources. */
+    private val string: (Int) -> String = { context.getString(it) },
 ) {
 
     companion object {
@@ -75,7 +77,7 @@ class PrintEngine(
      * in the system. Saying so is the difference between a user who checks the
      * paper and a user who spends an evening on the command language.
      */
-    private fun unconfirmedReason(address: PrinterAddress): String = context.getString(
+    private fun unconfirmedReason(address: PrinterAddress): String = string(
         when (address) {
             is PrinterAddress.Bluetooth -> R.string.unconfirmed_bluetooth
             is PrinterAddress.Usb -> R.string.unconfirmed_usb
@@ -403,7 +405,7 @@ class PrintEngine(
     private fun resultFor(ending: Ending?, sent: Long, unconfirmed: String): PrintResult = when (ending) {
         is Ending.Finished -> PrintResult.Completed(sent)
         is Ending.Fault -> PrintResult.Failure(
-            context.getString(
+            string(
                 when (ending.fault) {
                     TsplStatus.Fault.PAPER_EMPTY -> R.string.tspl_fault_paper_empty
                     TsplStatus.Fault.PAPER_JAM -> R.string.tspl_fault_paper_jam
@@ -412,9 +414,9 @@ class PrintEngine(
             ),
         )
         is Ending.ReadyButNeverSeenBusy ->
-            PrintResult.Sent(sent, reason = context.getString(R.string.tspl_ready_not_busy))
+            PrintResult.Sent(sent, reason = string(R.string.tspl_ready_not_busy))
         is Ending.NeedsAttention ->
-            PrintResult.Sent(sent, reason = context.getString(R.string.tspl_needs_attention))
+            PrintResult.Sent(sent, reason = string(R.string.tspl_needs_attention))
         is Ending.TimedOut ->
             PrintResult.Sent(sent, reason = context.getString(R.string.tspl_still_busy, ending.waitedMs / 1_000))
         is Ending.NoAnswer, is Ending.LinkLost, null -> PrintResult.Sent(sent, reason = unconfirmed)

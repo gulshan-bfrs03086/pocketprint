@@ -1,6 +1,8 @@
 package com.gulshan.pocketprint
 
 import com.gulshan.pocketprint.label.EscPos
+import com.gulshan.pocketprint.label.MonoPage
+import com.gulshan.pocketprint.render.escPosPage
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -32,20 +34,21 @@ class EscPosBlankBandsTest {
             .build()
 
     /** What a printer does with the stream, reduced to what lands on the paper. */
-    private class Paper(val rows: List<List<Byte>>, val unit: Pair<Int, Int>?, val feeds: List<Int>, val cutFeed: Int)
+    private class Paper(val rows: List<List<Byte>>, val unit: Pair<Int, Int>?, val feeds: List<Int>, val cutFeed: Int, val unitCommands: Int)
 
     private fun read(s: ByteArray): Paper {
         val rows = ArrayList<List<Byte>>()
         val feeds = ArrayList<Int>()
         var unit: Pair<Int, Int>? = null
         var cutFeed = -1
+        var unitCommands = 0
         var i = 0
         fun u(at: Int) = s[at].toInt() and 0xFF
         while (i < s.size) {
             val b = u(i)
             when {
                 b == 0x1B && u(i + 1) == 0x40 -> i += 2
-                b == 0x1D && u(i + 1) == 0x50 -> { unit = u(i + 2) to u(i + 3); i += 4 }
+                b == 0x1D && u(i + 1) == 0x50 -> { unit = u(i + 2) to u(i + 3); unitCommands++; i += 4 }
                 b == 0x1B && u(i + 1) == 0x4A -> {
                     feeds += u(i + 2)
                     repeat(u(i + 2)) { rows += List(bytesPerRow) { 0.toByte() } }
@@ -63,7 +66,7 @@ class EscPosBlankBandsTest {
                 else -> throw AssertionError("unexpected byte $b at $i")
             }
         }
-        return Paper(rows, unit, feeds, cutFeed)
+        return Paper(rows, unit, feeds, cutFeed, unitCommands)
     }
 
     private fun assertSamePaper(packed: ByteArray, band: Int = 128) {
@@ -206,6 +209,16 @@ class EscPosBlankBandsTest {
     }
 
     @Test
+    fun `the motion unit is set once however many runs are fed`() {
+        // Four feeds in this page. A clone that prints GS P's parameters as text
+        // would print them once per run if it were sent before each.
+        val p = read(stream(page(640, 300), dpi))
+
+        assertEquals(4, p.feeds.size)
+        assertEquals(1, p.unitCommands)
+    }
+
+    @Test
     fun `a page with no blank band does not touch the motion unit`() {
         val s = stream(ByteArray(bytesPerRow * 256) { 1 }, dpi)
 
@@ -253,5 +266,44 @@ class EscPosBlankBandsTest {
         println("receipt 2400 rows: $old -> $new bytes")
         assertTrue("$old -> $new", new < old / 2)
         assertSamePaper(packed)
+    }
+
+    // -- the paths a receipt actually takes ---------------------------------
+    //
+    // Everything above calls rasterBands. A receipt goes through image(), from
+    // the page the pipeline hands over, and a dpi dropped on either step turned
+    // the whole feature off with every test above still green.
+
+    private fun monoPage(packed: ByteArray) = MonoPage(packed, bytesPerRow * 8, packed.size / bytesPerRow)
+
+    @Test
+    fun `a page handed to image skips its blank bands at the resolution it is given`() {
+        val packed = page(600, 3)
+
+        val skipped = read(EscPos(576).initialize().image(monoPage(packed), skipBlankDpi = dpi).cut().build())
+        val whole = read(EscPos(576).initialize().image(monoPage(packed)).cut().build())
+
+        assertEquals(listOf(255, 217), skipped.feeds)
+        assertEquals(dpi to dpi, skipped.unit)
+        assertTrue("asking for no skipping still sends every band", whole.feeds.isEmpty())
+        assertEquals(600, whole.rows.size)
+    }
+
+    @Test
+    fun `a receipt page leaves the pipeline with its blank bands fed and not sent`() {
+        val packed = page(600, 3)
+        val s = escPosPage(576, dpi, monoPage(packed))
+        val paper = read(s)
+
+        assertEquals("the blank rest of the page is fed over", listOf(255, 217), paper.feeds)
+        assertTrue("sent whole it would be 43 KB: ${s.size}", s.size < 10_000)
+        assertEquals("every row where it was", read(stream(packed, 0)).rows, paper.rows)
+        assertEquals(4, paper.cutFeed)
+    }
+
+    @Test
+    fun `the head's own resolution is what the receipt pins the motion unit to`() {
+        // Not a constant: a 180 dpi head must not be left at 203.
+        assertEquals(180 to 180, read(escPosPage(576, 180, monoPage(page(600, 3)))).unit)
     }
 }

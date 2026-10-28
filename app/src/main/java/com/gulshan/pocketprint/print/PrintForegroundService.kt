@@ -172,7 +172,7 @@ class PrintForegroundService : Service() {
             } finally {
                 // Runs even on cancellation, so the service always winds down.
                 running.remove(jobId)
-                acceptedAt.remove(jobId)
+                acceptedJobs.forget(jobId)
                 if (notifiedJobId == jobId) notifiedJobId = null
                 if (inFlight.decrementAndGet() == 0) stopSelf(latestStartId)
             }
@@ -233,7 +233,7 @@ class PrintForegroundService : Service() {
     )
 
     /** When the job was accepted, which a QUEUED row and its later rows must agree on. */
-    private val acceptedAt = ConcurrentHashMap<String, Long>()
+    private val acceptedJobs = AcceptedJobs()
 
     /**
      * Puts a job that has to wait for another one into the history now, as
@@ -247,11 +247,11 @@ class PrintForegroundService : Service() {
         document: SourceDocument,
         options: PrintOptions,
     ) {
-        val startedAt = System.currentTimeMillis().also { acceptedAt[jobId] = it }
-        if (!queue.isLocked) return
+        val accepted = acceptedJobs.accept(jobId, queueBusy = queue.isLocked)
+        if (!accepted.showAsQueued) return
         val printer = ServiceLocator.printerRepository(applicationContext).find(printerId) ?: return
         ServiceLocator.jobRepository(applicationContext)
-            .upsert(jobRecord(jobId, printer, document, options, JobState.QUEUED, startedAt))
+            .upsert(jobRecord(jobId, printer, document, options, JobState.QUEUED, accepted.at))
     }
 
     /** A job cancelled before it started: its row, if it has one, says so. */
@@ -263,7 +263,7 @@ class PrintForegroundService : Service() {
     ) {
         val printer = ServiceLocator.printerRepository(applicationContext).find(printerId) ?: return
         val jobs = ServiceLocator.jobRepository(applicationContext)
-        val startedAt = acceptedAt[jobId] ?: System.currentTimeMillis()
+        val startedAt = acceptedJobs.startedAt(jobId)
         jobs.upsert(
             jobRecord(
                 jobId, printer, document, options, JobState.CANCELLED, startedAt,
@@ -286,7 +286,7 @@ class PrintForegroundService : Service() {
 
         // The moment the job was accepted, so a row that waited as QUEUED keeps its
         // place in the list when it starts.
-        val startedAt = acceptedAt[jobId] ?: System.currentTimeMillis()
+        val startedAt = acceptedJobs.startedAt(jobId)
         notifiedJobId = jobId
 
         if (printer == null) {

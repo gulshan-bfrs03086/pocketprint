@@ -272,6 +272,46 @@ class Tspl(
         private const val TEST_PICTURE_CLEARANCE = 24
 
         /**
+         * The test page a printer is given to show whether its command language
+         * was guessed right: a labelled box, a barcode and, on a printer that
+         * decodes it, the compressed test picture. [onNoRoomForPicture] is told
+         * when the label is too small for the picture and it was left off.
+         */
+        fun testPage(
+            media: MediaSize,
+            dpi: Int,
+            width: Int,
+            compressedBitmaps: Boolean,
+            stock: LabelStock,
+            onNoRoomForPicture: () -> Unit = {},
+        ): ByteArray = Tspl(media, dpi, compressedBitmaps).apply {
+            setup(stock)
+            text(20, 20, TEST_HEADING, font = "3")
+            text(20, 70, "TSPL  ${media.label}", font = "2")
+            text(20, 105, "${dpi} dpi  ${width} dots", font = "2")
+            barcode(20, 145, "POCKETPRINT", height = 60)
+            box(10, 10, media.dotsWide(dpi) - 10, media.dotsHigh(dpi) - 10, 3)
+            if (compressedBitmaps) {
+                // Sent through the compressed command, so a printer that does
+                // not decode it shows it here, on a test label, and not on
+                // somebody's real one. A framed box with a diagonal and a
+                // solid square at its top left means it works.
+                val at = testPicturePlacement(media.dotsWide(dpi), media.dotsHigh(dpi))
+                if (at == null) {
+                    onNoRoomForPicture()
+                } else {
+                    // A tall label has the line of text above its picture.
+                    if (at.second > 20) text(20, 225, TEST_PICTURE_CAPTION, font = "2")
+                    testPicture(at.first, at.second)
+                }
+            }
+            print(sets = 1, copies = 1)
+        }.build()
+
+        /** The line above the compressed test picture on a tall label. */
+        const val TEST_PICTURE_CAPTION = "COMPRESSED PICTURE:"
+
+        /**
          * Where on the test page the compressed test picture can go without
          * landing on anything else, or null if nowhere can.
          *

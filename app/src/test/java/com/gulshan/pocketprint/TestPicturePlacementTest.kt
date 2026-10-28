@@ -3,6 +3,7 @@ package com.gulshan.pocketprint
 import com.gulshan.pocketprint.label.Tspl
 import com.gulshan.pocketprint.model.MediaSize
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -69,5 +70,69 @@ class TestPicturePlacementTest {
             val at = place(media) ?: continue
             assertTrue("${media.label}: picture at $at", at.second > 20 || !overlapsHeading(at.first, at.second))
         }
+    }
+
+    @Test
+    fun `50 x 30 is one of the labels that loses the picture, since it would sit 8 dots from the heading`() {
+        assertNull(place(MediaSize.LABEL_50X30))
+    }
+
+    @Test
+    fun `the picture keeps 24 dots clear of the heading, to the dot`() {
+        // x = width - 96 - 20, and the heading ends at headingRight.
+        val needed = headingRight + 24 + Tspl.TEST_PICTURE_BYTES * 8 + 20
+
+        assertNull("one dot short", Tspl.testPicturePlacement(needed - 1, 240))
+        assertEquals(headingRight + 24 to 20, Tspl.testPicturePlacement(needed, 240))
+    }
+
+    @Test
+    fun `320 dots is the first height that is tall enough for the picture under the barcode`() {
+        // Wide enough for either, so the height alone decides.
+        assertEquals(20 to 255, Tspl.testPicturePlacement(800, 320))
+        assertEquals(800 - Tspl.TEST_PICTURE_BYTES * 8 - 20 to 20, Tspl.testPicturePlacement(800, 319))
+    }
+}
+
+/**
+ * The test page is what a person reads to find out whether the guessed command
+ * language is right, so what goes on it is pinned as printed: the line above the
+ * picture belongs to the tall label's layout and to no other.
+ */
+class TsplTestPageTest {
+
+    private val stock = com.gulshan.pocketprint.model.LabelStock()
+
+    private fun page(media: MediaSize, compressed: Boolean = true, noRoom: () -> Unit = {}) = String(
+        Tspl.testPage(media, 203, media.dotsWide(203), compressed, stock, noRoom),
+        Charsets.ISO_8859_1,
+    )
+
+    @Test
+    fun `a tall label captions the picture under its barcode`() {
+        assertTrue(page(MediaSize.LABEL_4X6).contains("TEXT 20,225,\"2\",0,1,1,\"${Tspl.TEST_PICTURE_CAPTION}\""))
+    }
+
+    @Test
+    fun `a short label has the picture beside the heading and no caption`() {
+        assertFalse(page(MediaSize.LABEL_100X25).contains(Tspl.TEST_PICTURE_CAPTION))
+    }
+
+    @Test
+    fun `a label with no room says so and prints no picture or caption`() {
+        var told = 0
+        val text = page(MediaSize.LABEL_38X25) { told++ }
+
+        assertEquals(1, told)
+        assertFalse(text.contains(Tspl.TEST_PICTURE_CAPTION))
+    }
+
+    @Test
+    fun `a printer without compressed bitmaps is never asked about the picture`() {
+        var told = 0
+        val text = page(MediaSize.LABEL_4X6, compressed = false) { told++ }
+
+        assertEquals(0, told)
+        assertFalse(text.contains(Tspl.TEST_PICTURE_CAPTION))
     }
 }

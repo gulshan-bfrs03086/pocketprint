@@ -100,11 +100,15 @@ class EscPos(private val dotsWide: Int = 576) {
         dither: Boolean = true,
         skipBlankDpi: Int = 0,
     ) = apply {
-        val scaled = fitWidth(bitmap, dotsWide)
-        val bytesPerRow = (scaled.width + 7) / 8
-        val packed = Raster.toPackedMono(scaled, dither = dither)
-        rasterBands(packed, bytesPerRow, scaled.height, bandHeight, skipBlankDpi)
-        if (scaled !== bitmap) scaled.recycle()
+        image(pack(bitmap, dotsWide, dither), bandHeight, skipBlankDpi)
+    }
+
+    /**
+     * The same for a page already packed, which is what lets the bands and the
+     * skipping be tested without a bitmap to hand.
+     */
+    fun image(page: MonoPage, bandHeight: Int = 128, skipBlankDpi: Int = 0) = apply {
+        rasterBands(page.packed, (page.width + 7) / 8, page.height, bandHeight, skipBlankDpi)
     }
 
     /**
@@ -192,6 +196,14 @@ class EscPos(private val dotsWide: Int = 576) {
     fun build(): ByteArray = out.toByteArray()
 
     companion object {
+        /** A bitmap scaled to the head's width and packed one bit a dot. */
+        fun pack(bitmap: Bitmap, dotsWide: Int, dither: Boolean): MonoPage {
+            val scaled = fitWidth(bitmap, dotsWide)
+            val page = MonoPage(Raster.toPackedMono(scaled, dither = dither), scaled.width, scaled.height)
+            if (scaled !== bitmap) scaled.recycle()
+            return page
+        }
+
         /** Scales a bitmap so its width matches the print head, preserving ratio. */
         fun fitWidth(bitmap: Bitmap, targetWidth: Int): Bitmap {
             if (bitmap.width == targetWidth) return bitmap
@@ -202,3 +214,6 @@ class EscPos(private val dotsWide: Int = 576) {
         }
     }
 }
+
+/** A page packed for ESC/POS: [width] dots a row, [height] rows, a set bit being ink. */
+class MonoPage(val packed: ByteArray, val width: Int, val height: Int)

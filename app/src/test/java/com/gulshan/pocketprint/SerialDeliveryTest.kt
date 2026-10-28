@@ -52,14 +52,19 @@ class SerialDeliveryTest {
         var closed = false
         /** When set, a question's write blocks like a socket to a printer that stopped reading. */
         var blockQueries: CountDownLatch? = null
+        /** Questions answered normally before [blockQueries] takes effect. */
+        var blockAfter = 0
+        /** When set, anything done after the transport was closed fails, like a closed socket. */
+        var failWhenClosed = false
 
         override val description = "fake"
         override suspend fun open() = Unit
         override suspend fun write(source: InputStream, onProgress: (Long) -> Unit): Long {
+            if (failWhenClosed && closed) throw IOException("socket closed")
             val bytes = source.readBytes()
             if (bytes.contentEquals(TsplStatus.QUERY)) {
-                queries.incrementAndGet()
-                blockQueries?.let { gate ->
+                val asked = queries.incrementAndGet()
+                blockQueries?.takeIf { asked > blockAfter }?.let { gate ->
                     withContext(Dispatchers.IO) {
                         gate.await(5, java.util.concurrent.TimeUnit.SECONDS)
                         throw IOException("socket closed")
@@ -73,7 +78,10 @@ class SerialDeliveryTest {
             return bytes.size.toLong()
         }
         override suspend fun finish() { finished = true }
-        override suspend fun readAvailable(timeoutMs: Long): ByteArray = pending.also { pending = ByteArray(0) }
+        override suspend fun readAvailable(timeoutMs: Long): ByteArray {
+            if (failWhenClosed && closed) throw IOException("socket closed")
+            return pending.also { pending = ByteArray(0) }
+        }
         override fun close() {
             closed = true
             blockQueries?.countDown()
@@ -181,6 +189,47 @@ class SerialDeliveryTest {
 
         assertTrue("the transport was not closed under the blocked write", printer.closed)
         assertEquals(Ending.LinkLost, outcome.ending)
+    }
+
+    @Test
+    fun `a question written during the wait to a printer that stopped reading is cut off`() {
+        // Ready before the job, then the first question after it hangs. The
+        // pre-job question is answered, so only the guard around the wait itself
+        // can close the transport here.
+        val printer = FakePrinter(listOf(0x00)).apply {
+            blockQueries = CountDownLatch(1)
+            blockAfter = 1
+        }
+
+        val outcome = runBlocking {
+            withTimeout(10_000) { async { deliver(printer, PrintLanguage.TSPL, stallMs = 300) }.await() }
+        }
+
+        assertTrue("the transport was not closed under the blocked question", printer.closed)
+        assertEquals(Ending.LinkLost, outcome.ending)
+    }
+
+    @Test
+    fun `a wait that outlasts the stall limit is not cut off while the printer keeps answering`() = runBlocking {
+        // Eight polls 120 ms apart against a 300 ms limit: the wait is three times
+        // the limit, and only each question's heartbeat keeps the guard from
+        // closing the transport part way through a job that takes minutes.
+        val busy = TsplStatus.PRINTING
+        val printer = FakePrinter(listOf(0x00) + List(8) { busy } + listOf(0x00)).apply { failWhenClosed = true }
+        val clock = Clock()
+
+        val outcome = deliverSerial(
+            transport = printer,
+            printerKey = freshKey(),
+            language = PrintLanguage.TSPL,
+            source = "PRINT 1,1\r\n".byteInputStream(),
+            stallMs = 300,
+            now = { clock.now },
+            pause = { clock.now += it; kotlinx.coroutines.delay(120) },
+        )
+
+        assertFalse("the guard closed the transport during a healthy wait", printer.closed)
+        assertTrue("${outcome.ending}", outcome.ending is Ending.Finished)
     }
 
     @Test

@@ -86,6 +86,53 @@ class RawSocketReadTest {
     }
 
     @Test
+    fun `a reply is returned once it has stopped coming, not when the timeout runs out`() {
+        val transport = connect()
+        thread {
+            Thread.sleep(150)
+            peer!!.getOutputStream().apply { write(byteArrayOf(0x00)); flush() }
+        }
+        val started = System.nanoTime()
+
+        val reply = runBlocking { transport.readAvailable(5_000) }
+        val tookMs = (System.nanoTime() - started) / 1_000_000
+
+        assertArrayEquals(byteArrayOf(0x00), reply)
+        // The reply came at ~150 ms; the wait for more of it is a fraction of a
+        // second. Every status poll on a Raw printer pays this.
+        assertTrue("a reply at 150 ms held the call for ${tookMs}ms", tookMs < 1_500)
+        transport.close()
+    }
+
+    @Test
+    fun `a reply that comes in pieces is returned whole`() {
+        val transport = connect()
+        thread {
+            val out = peer!!.getOutputStream()
+            out.write("TE200".toByteArray()); out.flush()
+            Thread.sleep(20)
+            out.write("\r\n".toByteArray()); out.flush()
+        }
+
+        val reply = runBlocking { transport.readAvailable(3_000) }
+
+        assertEquals("only the first piece was returned", "TE200\r\n", String(reply))
+        transport.close()
+    }
+
+    @Test
+    fun `a reply followed straight away by the printer hanging up is still a reply`() {
+        val transport = connect()
+        peer!!.getOutputStream().apply { write(byteArrayOf(0x20)); flush() }
+        peer!!.close()
+
+        val reply = runBlocking { transport.readAvailable(2_000) }
+
+        assertArrayEquals("the reply was thrown away with the connection", byteArrayOf(0x20), reply)
+        transport.close()
+    }
+
+    @Test
     fun `reading before the connection is open is silence`() {
         val transport = RawSocketTransport(PrinterAddress.Raw("127.0.0.1", 9))
 
