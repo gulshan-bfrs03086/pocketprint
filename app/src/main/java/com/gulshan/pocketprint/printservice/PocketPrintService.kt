@@ -56,6 +56,21 @@ class PocketPrintService : PrintService() {
 
     companion object {
         private const val TAG = "PocketPrintService"
+
+        /**
+         * Whether the framework has this service up in this process. Read by
+         * PrintServiceRebind, which must not take down a binding that works.
+         * Per process, which is the right scope: the service only ever runs in
+         * this one.
+         */
+        @Volatile
+        var running = false
+            private set
+    }
+
+    override fun onCreate() {
+        super.onCreate()
+        running = true
     }
 
     override fun onCreatePrinterDiscoverySession(): PrinterDiscoverySession =
@@ -155,6 +170,7 @@ class PocketPrintService : PrintService() {
     }
 
     override fun onDestroy() {
+        running = false
         scope.cancel()
         super.onDestroy()
     }

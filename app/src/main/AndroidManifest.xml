@@ -215,6 +215,14 @@
                 android:resource="@xml/print_service" />
         </service>
 
+        <!-- Never meant to run: a job whose absence says the app was
+             force-stopped or freshly installed since it was last opened. See
+             StopCanary and Rebind for why that matters to the print service. -->
+        <service
+            android:name=".printservice.StopCanary"
+            android:exported="false"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
+
         <service
             android:name=".print.PrintForegroundService"
             android:exported="false"

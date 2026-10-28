@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.os.Build
 import com.gulshan.pocketprint.net.LocalNetwork
+import com.gulshan.pocketprint.printservice.PrintServiceRebind
 import com.gulshan.pocketprint.render.Spool
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -29,6 +30,9 @@ class PocketPrintApplication : Application() {
         val processStartedAt = System.currentTimeMillis()
 
         createNotificationChannel()
+        // First, so that a print service left switched off by an interrupted
+        // rebind is back before anything else could need it.
+        PrintServiceRebind.onProcessStart(this)
         // Registered here rather than at print time because a network callback
         // takes a moment to deliver its first answer, and the first thing this
         // app does after launch is often print.
