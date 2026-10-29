@@ -16,7 +16,7 @@ plugins {
  */
 val versionMajor = 1
 val versionMinor = 5
-val versionPatch = 2
+val versionPatch = 3
 
 /**
  * The version code, derived from the version rather than tracked by hand.
