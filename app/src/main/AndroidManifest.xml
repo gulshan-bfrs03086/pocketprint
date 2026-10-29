@@ -153,6 +153,19 @@
             android:exported="true"
             android:targetActivity=".MainActivity" />
 
+        <!-- Started by name by an app that prints through PocketPrint, to take
+             the package out of the stopped state before it opens the print
+             dialog: see WakeActivity. Draws nothing and finishes at once, so
+             it never shows, never lands in recents and keeps no history.
+             No intent filter: reachable by this exact name only. -->
+        <activity
+            android:name=".WakeActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.NoDisplay" />
+
         <!-- Share-sheet target: "Print" from any app.
 
              The types are listed rather than wildcarded. */* put PocketPrint in
