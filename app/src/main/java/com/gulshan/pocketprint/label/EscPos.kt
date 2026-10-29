@@ -90,28 +90,97 @@ class EscPos(private val dotsWide: Int = 576) {
     /**
      * GS v 0 — raster bit image. Sent in horizontal bands because printers with
      * small line buffers reject a full-page image in one command.
+     *
+     * [skipBlankDpi] is the print head's resolution, and asking for it turns on
+     * blank-band skipping: see [rasterBands]. Zero, the default, sends every band.
      */
-    fun image(bitmap: Bitmap, bandHeight: Int = 128, dither: Boolean = true) = apply {
-        val scaled = fitWidth(bitmap, dotsWide)
-        val w = scaled.width
-        val h = scaled.height
-        val bytesPerRow = (w + 7) / 8
-        val packed = Raster.toPackedMono(scaled, dither = dither)
+    fun image(
+        bitmap: Bitmap,
+        bandHeight: Int = 128,
+        dither: Boolean = true,
+        skipBlankDpi: Int = 0,
+    ) = apply {
+        image(pack(bitmap, dotsWide, dither), bandHeight, skipBlankDpi)
+    }
+
+    /**
+     * The same for a page already packed, which is what lets the bands and the
+     * skipping be tested without a bitmap to hand.
+     */
+    fun image(page: MonoPage, bandHeight: Int = 128, skipBlankDpi: Int = 0) = apply {
+        rasterBands(page.packed, (page.width + 7) / 8, page.height, bandHeight, skipBlankDpi)
+    }
+
+    /**
+     * The bands of an already packed page (1 = ink, a row is [bytesPerRow] bytes).
+     *
+     * With [skipBlankDpi] in 1..255, a band with no ink in it is not sent: the
+     * paper is fed over it instead, with ESC J, and a run of blank bands is one
+     * feed however long. The feed is the same number of dots the band would have
+     * printed, so every inked row lands where it always did, and a blank tail is
+     * still fed before whatever follows the image (the cut). The saving is the
+     * whole band: a blank 80 mm band is 9 KB over the wire and 3 bytes here.
+     *
+     * ESC J counts in the printer's vertical motion unit, which is a model default
+     * until GS P sets it, and the Epson default is 1/360 inch, not a dot. So the
+     * unit is pinned to the head's own resolution before the first feed, and only
+     * then. That is also why this cannot be left on in a stream that sets ESC 3:
+     * its argument is in the same unit, and would change meaning under GS P. This
+     * builder has no ESC 3, line feeds being ESC d at the printer's own spacing.
+     *
+     * A resolution over 255 does not fit GS P, so it skips nothing.
+     */
+    fun rasterBands(
+        packed: ByteArray,
+        bytesPerRow: Int,
+        height: Int,
+        bandHeight: Int = 128,
+        skipBlankDpi: Int = 0,
+    ) = apply {
+        val skipping = skipBlankDpi in 1..255
+        var unitPinned = false
+        var pendingFeed = 0
+
+        fun flushFeed() {
+            if (pendingFeed == 0) return
+            if (!unitPinned) {
+                out.write(byteArrayOf(0x1D, 0x50, skipBlankDpi.toByte(), skipBlankDpi.toByte())) // GS P x y
+                unitPinned = true
+            }
+            // ESC J n takes one byte, so a longer run is several feeds.
+            while (pendingFeed > 0) {
+                val n = minOf(pendingFeed, 255)
+                out.write(byteArrayOf(0x1B, 0x4A, n.toByte())) // ESC J n
+                pendingFeed -= n
+            }
+        }
 
         var y = 0
-        while (y < h) {
-            val rows = minOf(bandHeight, h - y)
-            out.write(
-                byteArrayOf(
-                    0x1D, 0x76, 0x30, 0x00,
-                    (bytesPerRow and 0xFF).toByte(), ((bytesPerRow shr 8) and 0xFF).toByte(),
-                    (rows and 0xFF).toByte(), ((rows shr 8) and 0xFF).toByte(),
-                ),
-            )
-            out.write(packed, y * bytesPerRow, rows * bytesPerRow)
+        while (y < height) {
+            val rows = minOf(bandHeight, height - y)
+            val from = y * bytesPerRow
+            val to = from + rows * bytesPerRow
+            if (skipping && isBlank(packed, from, to)) {
+                pendingFeed += rows
+            } else {
+                flushFeed()
+                out.write(
+                    byteArrayOf(
+                        0x1D, 0x76, 0x30, 0x00,
+                        (bytesPerRow and 0xFF).toByte(), ((bytesPerRow shr 8) and 0xFF).toByte(),
+                        (rows and 0xFF).toByte(), ((rows shr 8) and 0xFF).toByte(),
+                    ),
+                )
+                out.write(packed, from, rows * bytesPerRow)
+            }
             y += rows
         }
-        if (scaled !== bitmap) scaled.recycle()
+        flushFeed()
+    }
+
+    private fun isBlank(packed: ByteArray, from: Int, to: Int): Boolean {
+        for (i in from until to) if (packed[i].toInt() != 0) return false
+        return true
     }
 
     /** GS V — partial cut, after feeding the paper clear of the head. */
@@ -127,6 +196,14 @@ class EscPos(private val dotsWide: Int = 576) {
     fun build(): ByteArray = out.toByteArray()
 
     companion object {
+        /** A bitmap scaled to the head's width and packed one bit a dot. */
+        fun pack(bitmap: Bitmap, dotsWide: Int, dither: Boolean): MonoPage {
+            val scaled = fitWidth(bitmap, dotsWide)
+            val page = MonoPage(Raster.toPackedMono(scaled, dither = dither), scaled.width, scaled.height)
+            if (scaled !== bitmap) scaled.recycle()
+            return page
+        }
+
         /** Scales a bitmap so its width matches the print head, preserving ratio. */
         fun fitWidth(bitmap: Bitmap, targetWidth: Int): Bitmap {
             if (bitmap.width == targetWidth) return bitmap
@@ -137,3 +214,6 @@ class EscPos(private val dotsWide: Int = 576) {
         }
     }
 }
+
+/** A page packed for ESC/POS: [width] dots a row, [height] rows, a set bit being ink. */
+class MonoPage(val packed: ByteArray, val width: Int, val height: Int)

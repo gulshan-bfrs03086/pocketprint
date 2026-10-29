@@ -17,9 +17,11 @@ import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -59,6 +61,16 @@ fun AppNav(viewModel: PrintersViewModel = viewModel()) {
             launchSingleTop = true
             restoreState = true
         }
+    }
+
+    // The system's "Add printer using PocketPrint" entry opens the app wherever
+    // it was last left. Adding a printer is on the Print tab, so that is where
+    // it goes; the tab itself brings the setup card into view and clears the
+    // request. Keyed on the request, so it runs when one arrives - including
+    // while the app is already open on another tab - and not again on rotation.
+    val addPrinterRequested by viewModel.addPrinterRequest.pending.collectAsStateWithLifecycle()
+    LaunchedEffect(addPrinterRequested) {
+        if (addPrinterRequested) go(TABS.first { it.route == "printers" })
     }
 
     Scaffold(

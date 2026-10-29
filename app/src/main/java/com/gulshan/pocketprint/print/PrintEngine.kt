@@ -7,6 +7,7 @@ import com.gulshan.pocketprint.ipp.IppCapabilityMapper
 import com.gulshan.pocketprint.ipp.IppClient
 import com.gulshan.pocketprint.ipp.IppJobState
 import com.gulshan.pocketprint.ipp.IppStatus
+import com.gulshan.pocketprint.model.PrintLanguage
 import com.gulshan.pocketprint.model.PrintOptions
 import com.gulshan.pocketprint.model.PrintResult
 import com.gulshan.pocketprint.model.Printer
@@ -14,8 +15,8 @@ import com.gulshan.pocketprint.model.PrinterAddress
 import com.gulshan.pocketprint.model.SourceDocument
 import com.gulshan.pocketprint.render.RenderPipeline
 import com.gulshan.pocketprint.render.RenderedDocument
+import com.gulshan.pocketprint.transport.PrinterTransport
 import com.gulshan.pocketprint.transport.TransportFactory
-import com.gulshan.pocketprint.transport.guardAgainstStall
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -31,6 +32,8 @@ class PrintEngine(
     private val context: Context,
     private val pipeline: RenderPipeline,
     private val ippClient: IppClient = IppClient(),
+    /** The words for a job's ending, apart so the ending can be tested without a Resources. */
+    private val string: (Int) -> String = { context.getString(it) },
 ) {
 
     companion object {
@@ -74,7 +77,7 @@ class PrintEngine(
      * in the system. Saying so is the difference between a user who checks the
      * paper and a user who spends an evening on the command language.
      */
-    private fun unconfirmedReason(address: PrinterAddress): String = context.getString(
+    private fun unconfirmedReason(address: PrinterAddress): String = string(
         when (address) {
             is PrinterAddress.Bluetooth -> R.string.unconfirmed_bluetooth
             is PrinterAddress.Usb -> R.string.unconfirmed_usb
@@ -299,12 +302,18 @@ class PrintEngine(
         send(printer, rendered, jobName, options, listener)
     }.getOrElse { failureOf(it) }
 
+    /**
+     * Sends bytes the caller built itself. [language] is the dialect they are
+     * in: it is what decides whether the printer can be asked how the job went,
+     * and null means the caller does not know, so nothing is asked.
+     */
     suspend fun printRaw(
         printer: Printer,
         bytes: ByteArray,
         jobName: String,
         options: PrintOptions,
         listener: JobListener = JobListener(),
+        language: PrintLanguage? = null,
     ): PrintResult = runCatching {
         withContext(Dispatchers.IO) {
             val address = printer.address
@@ -338,15 +347,18 @@ class PrintEngine(
                 onPrinter(printer, listener) {
                     TransportFactory.create(context, printer).use { transport ->
                         transport.open()
-                        val sent = guardAgainstStall(
+                        // The same delivery a rendered document gets, so a label
+                        // from the designer, the test page or calibration is
+                        // confirmed, and its paper fault reported, like any other.
+                        val outcome = deliverSerial(
+                            transport = transport,
+                            printerKey = PrinterQueue.keyOf(printer),
+                            language = language,
+                            source = bytes.inputStream(),
                             stallMs = WRITE_STALL_MS,
-                            unblock = { runCatching { transport.close() } },
-                        ) { heartbeat ->
-                            transport.write(bytes) { heartbeat() }
-                        }
-                        // Must drain before use{} closes, or the tail is discarded.
-                        transport.finish()
-                        PrintResult.Sent(sent, reason = unconfirmedReason(address))
+                            onBusy = { waited -> reportWaiting(listener, waited) },
+                        )
+                        resultFor(outcome.ending, outcome.sent, unconfirmedReason(address))
                     }
                 }
             }
@@ -377,6 +389,38 @@ class PrintEngine(
         onResumed = { listener.onWaitingForPrinter(false) },
         block = delivery,
     )
+
+    private fun reportWaiting(listener: JobListener, waitedMs: Long) {
+        listener.onStatus(context.getString(R.string.tspl_waiting_for_printer, waitedMs / 1_000))
+    }
+
+    /**
+     * What a job's ending means for the person who pressed Print.
+     *
+     * Only a printer that went busy with the job and said it was ready again is
+     * Completed. A fault it reports is a failure, because the alternative is a
+     * job reported as done with the paper out. Everything else is Sent, with the
+     * reason there is nothing stronger to say.
+     */
+    private fun resultFor(ending: Ending?, sent: Long, unconfirmed: String): PrintResult = when (ending) {
+        is Ending.Finished -> PrintResult.Completed(sent)
+        is Ending.Fault -> PrintResult.Failure(
+            string(
+                when (ending.fault) {
+                    TsplStatus.Fault.PAPER_EMPTY -> R.string.tspl_fault_paper_empty
+                    TsplStatus.Fault.PAPER_JAM -> R.string.tspl_fault_paper_jam
+                    TsplStatus.Fault.HEAD_OPEN -> R.string.tspl_fault_head_open
+                },
+            ),
+        )
+        is Ending.ReadyButNeverSeenBusy ->
+            PrintResult.Sent(sent, reason = string(R.string.tspl_ready_not_busy))
+        is Ending.NeedsAttention ->
+            PrintResult.Sent(sent, reason = string(R.string.tspl_needs_attention))
+        is Ending.TimedOut ->
+            PrintResult.Sent(sent, reason = context.getString(R.string.tspl_still_busy, ending.waitedMs / 1_000))
+        is Ending.NoAnswer, is Ending.LinkLost, null -> PrintResult.Sent(sent, reason = unconfirmed)
+    }
 
     private suspend fun send(
         printer: Printer,
@@ -443,26 +487,26 @@ class PrintEngine(
                         // Copies are already baked into the payload by this point:
                         // TSPL via PRINT, ZPL via ^PQ, ESC/POS by repeating the page,
                         // PCL via ESC&l#X. So the stream goes out exactly once.
-                        //
-                        // Closing the transport is what unblocks a write stuck
-                        // in a syscall, for a stall and for a cancellation
-                        // alike; cancelling the coroutine on its own would not.
-                        val sent = guardAgainstStall(
+                        val outcome = deliverSerial(
+                            transport = transport,
+                            printerKey = PrinterQueue.keyOf(printer),
+                            language = rendered.language,
+                            source = rendered.file.inputStream(),
                             stallMs = WRITE_STALL_MS,
-                            unblock = { runCatching { transport.close() } },
-                        ) { heartbeat ->
-                            transport.write(rendered.file.inputStream()) { written ->
-                                heartbeat()
-                                listener.onProgress(written, total)
-                            }
-                        }
-                        transport.finish()
+                            onProgress = { written -> listener.onProgress(written, total) },
+                            onBusy = { waited -> reportWaiting(listener, waited) },
+                        )
+                        val sent = outcome.sent
+                        val ending = outcome.ending
+                        val answeredBefore = outcome.answeredBefore
+
                         Diagnostics.record(
                             TAG,
                             "sent $sent bytes of ${rendered.language} over " +
-                                transport.description,
+                                transport.description +
+                                (ending?.let { "; printer: $it (answered before the job: $answeredBefore)" } ?: ""),
                         )
-                        PrintResult.Sent(sent, reason = unconfirmedReason(address))
+                        resultFor(ending, sent, unconfirmedReason(address))
                     }
                 }
             }

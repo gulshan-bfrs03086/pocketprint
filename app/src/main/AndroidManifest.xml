@@ -24,7 +24,7 @@
 
     <!-- Bluetooth thermal / label printers.
 
-         Connect, and nothing else. There is no BLUETOOTH_SCAN here because this
+         Connect, and nothing else at runtime. There is no BLUETOOTH_SCAN here because this
          app no longer scans: pairing goes through the system's companion device
          picker, which does the scanning on the app's behalf, and printing after
          that works from the bonded list. An app that does not scan does not need
@@ -40,6 +40,25 @@
          install-time line. It was not worth two APKs, two version codes and two
          of every sentence describing them. -->
     <uses-permission android:name="android.permission.BLUETOOTH"
+        android:maxSdkVersion="30" />
+    <!-- One more install-time line, capped the same way. Before Android 12,
+         BluetoothAdapter.cancelDiscovery() and BluetoothDevice.createBond() need
+         BLUETOOTH_ADMIN.
+
+         The app's own transports call both, in every build, inside runCatching - so
+         until this line was added they failed without a word on Android 11 and
+         older. TSC's own Android library (see docs/TSC_SDK.md) calls
+         cancelDiscovery() before it connects and does not catch the refusal, which
+         is how this was found: a print through it failed at once with "Need
+         BLUETOOTH ADMIN permission", before any Bluetooth traffic.
+
+         The app still does not scan, and there is still no BLUETOOTH_SCAN. From
+         Android 12 the library's cancelDiscovery() would need it, so there the app
+         does not call the library's openport at all: it connects the socket itself,
+         which needs only BLUETOOTH_CONNECT above, and hands it to the library
+         (TscPortHandover). The TSC library therefore costs no permission of its
+         own on any version. -->
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN"
         android:maxSdkVersion="30" />
 
     <uses-feature android:name="android.software.companion_device_setup"
@@ -123,6 +142,17 @@
                 android:resource="@xml/usb_device_filter" />
         </activity>
 
+        <!-- What the system's "Add printer using PocketPrint" entry opens
+             (print_service.xml's addPrintersActivity). MainActivity under a
+             second name, so the app can tell that launch from the launcher's:
+             see AddPrintersEntry. Exported because the print dialog and
+             Settings are other apps; there is no intent filter, so nothing
+             reaches it except by this exact name. -->
+        <activity-alias
+            android:name=".AddPrintersEntry"
+            android:exported="true"
+            android:targetActivity=".MainActivity" />
+
         <!-- Share-sheet target: "Print" from any app.
 
              The types are listed rather than wildcarded. */* put PocketPrint in
@@ -186,6 +216,14 @@
                 android:name="android.printservice"
                 android:resource="@xml/print_service" />
         </service>
+
+        <!-- Never meant to run: a job whose absence says the app was
+             force-stopped or freshly installed since it was last opened. See
+             StopCanary and Rebind for why that matters to the print service. -->
+        <service
+            android:name=".printservice.StopCanary"
+            android:exported="false"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
 
         <service
             android:name=".print.PrintForegroundService"

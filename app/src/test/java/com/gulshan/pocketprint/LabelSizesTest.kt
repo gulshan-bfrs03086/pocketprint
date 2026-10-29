@@ -248,4 +248,59 @@ class LabelSizesTest {
             ),
         )
     }
+
+    // -- the size the screen opens on ---------------------------------------
+
+    @Test
+    fun `the screen opens on 75 x 75 mm`() {
+        assertEquals(MediaSize.LABEL_75X75, MediaSize.DEFAULT_LABEL)
+        assertEquals(75_000, MediaSize.DEFAULT_LABEL.widthMicrons)
+        assertEquals(75_000, MediaSize.DEFAULT_LABEL.heightMicrons)
+    }
+
+    /**
+     * A chip the row does not show would still be what gets printed, with
+     * nothing on screen saying so. The row appends a selection it lacks, which
+     * would hide this if it were ever wrong - so the check is on the row
+     * *without* a selection, and on the row with it, which must not grow.
+     */
+    @Test
+    fun `the size it opens on is one the row offers, with or without a printer`() {
+        assertTrue(MediaSize.DEFAULT_LABEL in labelSizesFor(null))
+        assertTrue(MediaSize.DEFAULT_LABEL in labelSizesFor(printer(MediaSize.custom(60f, 35f))))
+        assertEquals(MediaSize.LABELS, labelSizesFor(null, MediaSize.DEFAULT_LABEL))
+    }
+
+    /**
+     * The default is a guess about what is loaded, and the printer is a record
+     * of it. A 4 x 6 roll printed at 75 x 75 is a printer looking for a gap in
+     * the wrong place.
+     */
+    @Test
+    fun `a printer's own stock outranks the default`() {
+        assertEquals(
+            MediaSize.LABEL_4X6,
+            sizeWhenPrinterSelected(
+                MediaSize.DEFAULT_LABEL,
+                chosenByUser = false,
+                printer = printer(MediaSize.LABEL_4X6),
+            ),
+        )
+    }
+
+    @Test
+    fun `with nothing said about the stock the screen stays on the default`() {
+        assertEquals(
+            MediaSize.DEFAULT_LABEL,
+            sizeWhenPrinterSelected(MediaSize.DEFAULT_LABEL, chosenByUser = false, printer = null),
+        )
+        assertEquals(
+            MediaSize.DEFAULT_LABEL,
+            sizeWhenPrinterSelected(
+                MediaSize.DEFAULT_LABEL,
+                chosenByUser = false,
+                printer = printer(MediaSize.A4),
+            ),
+        )
+    }
 }

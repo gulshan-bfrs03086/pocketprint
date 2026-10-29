@@ -16,6 +16,8 @@ import java.io.ByteArrayOutputStream
 class Tspl(
     private val media: MediaSize = MediaSize.LABEL_4X6,
     private val dpi: Int = 203,
+    /** Send bitmaps as TSC's compressed command; see PrinterCapabilities.compressedBitmaps. */
+    private val compressBitmaps: Boolean = false,
 ) {
     private val out = ByteArrayOutputStream(8 * 1024)
 
@@ -50,8 +52,10 @@ class Tspl(
         stock: LabelStock,
         direction: Int = 1,
         tearOff: Boolean = true,
+        /** The page's length in mm, as SIZE takes it, when it is not the media's. */
+        pageHeightMm: String? = null,
     ) = apply {
-        cmd("SIZE ${fmt(media.widthMm)} mm, ${fmt(media.heightMm)} mm")
+        cmd("SIZE ${fmt(media.widthMm)} mm, ${pageHeightMm ?: fmt(media.heightMm)} mm")
         when (stock.sensing) {
             MediaSensing.GAP ->
                 cmd("GAP ${fmt(stock.gapMm)} mm, ${fmt(stock.offsetMm)} mm")
@@ -138,10 +142,24 @@ class Tspl(
     fun line(x: Int, y: Int, width: Int, height: Int) = cmd("BAR $x,$y,$width,$height")
 
     /**
-     * BITMAP x,y,widthBytes,height,mode,<binary>. Mode 0 overwrites.
-     * The bitmap payload follows the newline-terminated header directly.
+     * Sends the image as BITMAP x,y,widthBytes,height,0,<binary> CR LF, one per
+     * rectangle that has ink in it (see [InkBlocks]), and nothing for the white.
+     *
+     * That means the image's white margin does not erase anything: it used to be
+     * one BITMAP that overwrote its whole rectangle, and a caller that drew TEXT
+     * or a BOX first and relied on that would now see them show through. Draw an
+     * image first, or keep it clear of other drawing.
      */
     fun image(x: Int, y: Int, bitmap: Bitmap, dither: Boolean = true) = apply {
+        val page = pack(bitmap, dither)
+        bitmap(x, y, page.packed, page.widthBytes, page.height)
+    }
+
+    /**
+     * The page as TSPL wants it: scaled to the head, one bit per dot, a 0 bit
+     * being a dot. Nothing is written; [image] and [page] decide what to send.
+     */
+    fun pack(bitmap: Bitmap, dither: Boolean = true): PackedPage {
         val maxWidth = media.dotsWide(dpi)
         val scaled = EscPos.fitWidth(bitmap, minOf(bitmap.width, maxWidth))
         val w = scaled.width
@@ -167,13 +185,149 @@ class Tspl(
         // TSPL prints a dot for a 0 bit, so invert our ink mask.
         for (i in packed.indices) packed[i] = packed[i].toInt().inv().toByte()
 
-        out.write("BITMAP $x,$y,$bytesPerRow,$h,0,".toByteArray(Charsets.US_ASCII))
-        out.write(packed)
-        out.write("\r\n".toByteArray(Charsets.US_ASCII))
         if (scaled !== bitmap) scaled.recycle()
+        return PackedPage(packed, bytesPerRow, h)
+    }
+
+    /**
+     * One label: the preamble, the page, and PRINT.
+     *
+     * On continuous stock the page is cut off below its last ink (see
+     * [TrimBlank]) and SIZE says so, so the roll is expected to feed only that
+     * far. A different SIZE for each label of one job was accepted by an RE310,
+     * which reported the job finished; that the paper came out those lengths is
+     * for whoever holds it to check. On any other stock this is the page at the
+     * size that was picked, exactly as it always was.
+     *
+     * Only the rectangles that have ink in them are sent (see [bitmap]). The
+     * page used to go out whole - 45 KB for a 75 x 75 mm label - and a white byte
+     * costs as much to send as a black one; see InkBlocks for what that cost on a
+     * printer that takes in a few hundred bytes a second.
+     */
+    fun page(stock: LabelStock, page: PackedPage, sets: Int = 1, copies: Int = 1) = apply {
+        if (TrimBlank.applies(stock)) {
+            val keep = TrimBlank.rowsToKeep(page.packed, page.widthBytes, page.height, dpi)
+            setup(stock, pageHeightMm = TrimBlank.mmText(keep, dpi))
+            bitmap(0, 0, page.packed.copyOf(page.widthBytes * keep), page.widthBytes, keep)
+            com.gulshan.pocketprint.print.Diagnostics.record(
+                "TsplDiag",
+                "continuous stock: page trimmed to $keep of ${page.height} rows " +
+                    "(${TrimBlank.mmText(keep, dpi)} mm)",
+            )
+        } else {
+            setup(stock)
+            bitmap(0, 0, page.packed, page.widthBytes, page.height)
+        }
+        print(sets = sets, copies = copies)
+    }
+
+    /**
+     * A page that is already packed, a 0 bit being a dot, sent as the commands
+     * [TsplBitmap] makes of it. [image] ends here; the test page calls it too.
+     */
+    fun bitmap(x: Int, y: Int, packed: ByteArray, widthBytes: Int, height: Int) = apply {
+        val commands = TsplBitmap.encode(packed, widthBytes, height, x, y, compressBitmaps)
+        out.write(commands)
+        com.gulshan.pocketprint.print.Diagnostics.record(
+            "TsplDiag",
+            "sending ${commands.size} bytes of bitmap commands${if (compressBitmaps) " (compressed)" else ""} instead of " +
+                "${packed.size} (${"%.1f".format(commands.size * 100.0 / packed.size)}%)",
+        )
+    }
+
+    /**
+     * A 96 x 48 dot picture to print on a test label: a frame, a diagonal, and a
+     * solid square in the top left. It is lopsided on purpose, so a picture that
+     * came out mirrored, upside down or inverted - which is what a printer that
+     * misreads the compressed command does - cannot be mistaken for a good one.
+     */
+    fun testPicture(x: Int, y: Int) = apply {
+        val widthBytes = TEST_PICTURE_BYTES
+        val packed = ByteArray(widthBytes * TEST_PICTURE_HEIGHT) { 0xFF.toByte() }
+        fun dot(px: Int, py: Int) {
+            val at = py * widthBytes + px / 8
+            packed[at] = (packed[at].toInt() and (0x80 shr (px % 8)).inv()).toByte()
+        }
+        val width = widthBytes * 8
+        for (px in 0 until width) for (t in 0..1) { dot(px, t); dot(px, TEST_PICTURE_HEIGHT - 1 - t) }
+        for (py in 0 until TEST_PICTURE_HEIGHT) for (t in 0..1) { dot(t, py); dot(width - 1 - t, py) }
+        for (py in 6 until 22) for (px in 6 until 22) dot(px, py)
+        for (i in 0 until TEST_PICTURE_HEIGHT - 4) for (t in 0..1) dot(2 + i * (width - 4) / (TEST_PICTURE_HEIGHT - 4) + t, 2 + i)
+        bitmap(x, y, packed, widthBytes, TEST_PICTURE_HEIGHT)
     }
 
     fun print(sets: Int = 1, copies: Int = 1) = cmd("PRINT $sets,$copies")
+
+    companion object {
+        const val TEST_PICTURE_BYTES = 12
+        const val TEST_PICTURE_HEIGHT = 48
+
+        /** The test page's heading, which [testPicturePlacement] has to keep clear of. */
+        const val TEST_HEADING = "POCKETPRINT TEST"
+
+        /** Built-in font "3" is 16 dots a character, and the heading starts at x = 20. */
+        private const val TEST_HEADING_RIGHT = 20 + TEST_HEADING.length * 16
+
+        /** Empty space wanted between the heading and a picture beside it. */
+        private const val TEST_PICTURE_CLEARANCE = 24
+
+        /**
+         * The test page a printer is given to show whether its command language
+         * was guessed right: a labelled box, a barcode and, on a printer that
+         * decodes it, the compressed test picture. [onNoRoomForPicture] is told
+         * when the label is too small for the picture and it was left off.
+         */
+        fun testPage(
+            media: MediaSize,
+            dpi: Int,
+            width: Int,
+            compressedBitmaps: Boolean,
+            stock: LabelStock,
+            onNoRoomForPicture: () -> Unit = {},
+        ): ByteArray = Tspl(media, dpi, compressedBitmaps).apply {
+            setup(stock)
+            text(20, 20, TEST_HEADING, font = "3")
+            text(20, 70, "TSPL  ${media.label}", font = "2")
+            text(20, 105, "${dpi} dpi  ${width} dots", font = "2")
+            barcode(20, 145, "POCKETPRINT", height = 60)
+            box(10, 10, media.dotsWide(dpi) - 10, media.dotsHigh(dpi) - 10, 3)
+            if (compressedBitmaps) {
+                // Sent through the compressed command, so a printer that does
+                // not decode it shows it here, on a test label, and not on
+                // somebody's real one. A framed box with a diagonal and a
+                // solid square at its top left means it works.
+                val at = testPicturePlacement(media.dotsWide(dpi), media.dotsHigh(dpi))
+                if (at == null) {
+                    onNoRoomForPicture()
+                } else {
+                    // A tall label has the line of text above its picture.
+                    if (at.second > 20) text(20, 225, TEST_PICTURE_CAPTION, font = "2")
+                    testPicture(at.first, at.second)
+                }
+            }
+            print(sets = 1, copies = 1)
+        }.build()
+
+        /** The line above the compressed test picture on a tall label. */
+        const val TEST_PICTURE_CAPTION = "COMPRESSED PICTURE:"
+
+        /**
+         * Where on the test page the compressed test picture can go without
+         * landing on anything else, or null if nowhere can.
+         *
+         * A tall label has room under the barcode. A short one has none, so the
+         * picture goes top right, beside the heading - and a label narrower than
+         * about 400 dots (38 x 25, 25 x 25 and 50 x 30 mm at 203 dpi) has no room
+         * there either: the picture used to be printed over the heading. The
+         * picture is an opt-in diagnostic, and a missing one is better than one
+         * that spoils the label it is meant to be read from.
+         */
+        fun testPicturePlacement(widthDots: Int, heightDots: Int): Pair<Int, Int>? {
+            if (heightDots >= 320) return 20 to 255
+            val x = widthDots - TEST_PICTURE_BYTES * 8 - 20
+            return if (x >= TEST_HEADING_RIGHT + TEST_PICTURE_CLEARANCE) x to 20 else null
+        }
+    }
 
     fun build(): ByteArray = out.toByteArray()
 
@@ -185,3 +339,9 @@ class Tspl(
 
     private fun escape(s: String) = s.replace("\\", "\\\\").replace("\"", "\\\"")
 }
+
+/**
+ * A page packed for TSPL: [widthBytes] bytes a row, [height] rows, a 0 bit being
+ * a dot (so 0xFF is blank).
+ */
+class PackedPage(val packed: ByteArray, val widthBytes: Int, val height: Int)

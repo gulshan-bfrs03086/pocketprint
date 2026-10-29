@@ -45,6 +45,7 @@ class MediaSizeTest {
             MediaSize.LABEL_100X75 to (100 to 75),
             MediaSize.LABEL_100X50 to (100 to 50),
             MediaSize.LABEL_100X25 to (100 to 25),
+            MediaSize.LABEL_75X75 to (75 to 75),
             MediaSize.LABEL_75X50 to (75 to 50),
             MediaSize.LABEL_60X40 to (60 to 40),
             MediaSize.LABEL_50X40 to (50 to 40),
@@ -81,6 +82,20 @@ class MediaSizeTest {
         // Small enough that the firmware has to draw the barcode.
         assertEquals(400, MediaSize.LABEL_50X25.dotsWide(203))
         assertEquals(200, MediaSize.LABEL_50X25.dotsHigh(203))
+    }
+
+    @Test
+    fun `3 x 3 in is 76 point 2 millimetres, a different roll from 75 x 75 mm`() {
+        // The TSC sample label is 216 pt = 3.00 in. 1.2 mm per edge is the kind
+        // of "rounding" a gap-sensing printer turns into a media fault.
+        assertEquals(3 * 25_400, MediaSize.LABEL_3X3.widthMicrons)
+        assertEquals(3 * 25_400, MediaSize.LABEL_3X3.heightMicrons)
+        assertEquals("76.2 mm", "%.1f mm".format(MediaSize.LABEL_3X3.widthMm))
+
+        assertTrue(MediaSize.LABEL_3X3.id != MediaSize.LABEL_75X75.id)
+        assertTrue(MediaSize.LABEL_3X3 in MediaSize.LABEL_ROLLS)
+        assertTrue(MediaSize.LABEL_75X75 in MediaSize.LABEL_ROLLS)
+        assertEquals(75_000, MediaSize.LABEL_75X75.widthMicrons)
     }
 
     /**

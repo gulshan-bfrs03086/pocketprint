@@ -72,7 +72,7 @@ fun LabelScreen(viewModel: PrintersViewModel) {
         mutableStateOf(PrintLanguage.TSPL)
     }
     var media by rememberSaveable(stateSaver = MediaSizeSaver) {
-        mutableStateOf(MediaSize.LABEL_100X50)
+        mutableStateOf(MediaSize.DEFAULT_LABEL)
     }
     // Whether a size has been tapped, as opposed to the one it started on. Saved
     // alongside `media`, or a rotation would forget the choice and let the next
@@ -192,6 +192,10 @@ fun LabelScreen(viewModel: PrintersViewModel) {
                     media = media,
                     dpi = dpi,
                     stock = printer.stock,
+                    // Without it, a label in a script the printer's own fonts
+                    // cannot draw goes out as an uncompressed picture on the one
+                    // kind of printer that was switched to compressed for it.
+                    compressBitmaps = printer.capabilities.compressedBitmaps,
                     copies = options.copies,
                     headline = title,
                     line2 = line2,
@@ -199,7 +203,9 @@ fun LabelScreen(viewModel: PrintersViewModel) {
                     barcodeData = barcode,
                     receiptWidthDots = printer.capabilities.rasterWidthDots ?: 576,
                 )
-                viewModel.printRawLabel(printer, bytes, context.getString(R.string.label_job_name))
+                viewModel.printRawLabel(
+                    printer, bytes, context.getString(R.string.label_job_name), language,
+                )
             },
             modifier = Modifier
                 .fillMaxWidth()
@@ -243,6 +249,7 @@ private fun buildLabel(
     media: MediaSize,
     dpi: Int,
     stock: LabelStock,
+    compressBitmaps: Boolean,
     copies: Int,
     headline: String,
     line2: String,
@@ -258,7 +265,7 @@ private fun buildLabel(
 
     return when (language) {
 
-        PrintLanguage.TSPL -> Tspl(media, dpi).apply {
+        PrintLanguage.TSPL -> Tspl(media, dpi, compressBitmaps).apply {
             setup(stock)
             var y = LABEL_MARGIN
             if (printerFonts) {

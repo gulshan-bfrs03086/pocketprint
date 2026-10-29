@@ -238,7 +238,11 @@ to choose between:
 | Location permission | **none** |
 | Required hardware | **none** |
 
-It asks for no location permission, and none to scan. Pairing goes through Android's own
+It asks for no location permission, and none to scan. (On Android 11 and older it also declares
+the install-time `BLUETOOTH_ADMIN`, which those versions require to cancel a discovery or start
+pairing; it prompts for nothing.) That holds with TSC's optional library too: on Android 12 and
+newer the app connects the printer itself and hands the connection to the library, rather than
+asking to scan for the library's sake (see [docs/TSC_SDK.md](docs/TSC_SDK.md)). Pairing goes through Android's own
 companion device picker, which scans on the app's behalf — an app that does not scan does not
 need permission to. Earlier versions carried `ACCESS_FINE_LOCATION`, because a Bluetooth scan
 below API 31 required it, which is how this app once became uninstallable on a rugged terminal
@@ -308,6 +312,31 @@ One switch, once, under **Settings → Connected devices → Printing → Pocket
 button in the app that takes you straight there, and the app tells you whether the switch is
 already on — or says plainly that this version of Android will not let it find out.
 
+With it on, the print dialog in any app lists **Add printer using PocketPrint**. That opens the
+app on the Print tab with the setup card scrolled to the top: the label stock to confirm, and
+the button that starts setup. It only shows the card. Setup feeds and prints a test label, and
+a stock that does not match the roll loaded makes the printer stop with a paper fault, so it
+starts when the person has seen the stock and taps the button, not when they tap somebody
+else's dialog. The entry is a second name for the main activity (`AddPrintersEntry`), which is
+how the app tells it from the launcher; `AddPrintersEntryTest` keeps the manifest,
+`print_service.xml` and the code agreeing on it.
+
+If another app's print dialog, or Settings → Printing → PocketPrint, sits on "Searching for
+printers" and never lists a printer you can see saved in PocketPrint, **open PocketPrint**, wait
+about half a minute, and try again. If that does not do it, switch the PocketPrint print service
+**off and on** there.
+
+Both fix the same thing, reproduced on a zltd N7L (Android 9). When PocketPrint has been
+force-stopped, or installed and never opened, that ROM holds the print dialog's connection to it
+without starting the app; opening the app lets it through. If the app is force-stopped again or
+updated while the connection is still held, Android 9's print system is left believing it is still
+connecting, and never tries again — force-stopping the app makes no difference, and only
+recreating the service clears it. So when PocketPrint is opened after it may have been stopped, it
+switches its own print service off for fifteen seconds and back on, which recreates it the same way
+the Settings switch does. The fifteen seconds matter: Android only tells the print system about the
+change about ten seconds later, so a quicker off-and-on changes nothing, which is why an earlier
+attempt at this appeared not to help. PocketPrint is missing from print dialogs for those seconds.
+
 PocketPrint asks for nothing on first launch. Each permission is requested at the moment it is
 needed: Bluetooth when you set up a printer, notifications when you print. If one has been
 refused to the point where Android stops asking, the app says so and offers the way back.
@@ -358,9 +387,10 @@ every shared link and HTML document down together the day it stops. So it has a 
 fallback — `PdfDocument` and `WebView.draw`, worse output but a document that prints — and the
 gate fails if a second platform-package class appears or if the fallback stops being wired in.
 
-Versions are built on `release/X.Y` branches and reach `main` by merge, so `main` always holds the
-latest — see [docs/RELEASING.md](docs/RELEASING.md). The version is declared once, in
-`app/build.gradle.kts`, and the version code derives from it.
+Work reaches `main` by pull request. Versions are prepared on `release/X.Y` branches, cut from `main`
+and merged back to ship, so `main` is the latest release plus whatever has been merged since — see
+[docs/RELEASING.md](docs/RELEASING.md). The version is declared once, in `app/build.gradle.kts`, and
+the version code derives from it.
 
 ## Translating it
 
@@ -413,8 +443,10 @@ that one test skips, saying so.
 The rendering path is verified independently of any printer. Debug builds log the dark pixels
 per rendered page and the ink coverage of the packed bitmap, and save every generated command
 stream under `getExternalFilesDir` for byte-level inspection. On a 4x6 label at 203 dpi a
-US Letter page renders to 812 x 1051 dots at 30.02% ink and emits exactly 107,357 bytes of
-TSPL. That makes it quick to tell a rendering bug from a printer that is not marking.
+US Letter page renders to 812 x 1051 dots at 30.02% ink, which as one whole bitmap was exactly
+107,357 bytes of TSPL; the byte count is now smaller and depends on how much of the page is
+blank, since only blocks with ink are sent (see `InkBlocks`). The ink percentage is the number
+that makes it quick to tell a rendering bug from a printer that is not marking.
 
 **200 unit tests** cover the IPP codec (request framing, multi-value and resolution decoding,
 unknown-tag tolerance), PWG raster round trips including band-boundary equivalence, PWG media

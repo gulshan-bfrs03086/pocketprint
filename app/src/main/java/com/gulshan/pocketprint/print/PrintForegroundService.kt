@@ -100,6 +100,9 @@ class PrintForegroundService : Service() {
      * for every path rather than just this one. This lock is now about the
      * notification: there is a single foreground notification slot, and two
      * concurrent jobs would take turns overwriting each other's progress in it.
+     *
+     * A job waiting for it is already in the history, as QUEUED, so it can be
+     * seen and cancelled: see [inTurn].
      */
     private val queue = Mutex()
     private val inFlight = AtomicInteger(0)
@@ -161,10 +164,15 @@ class PrintForegroundService : Service() {
         inFlight.incrementAndGet()
         val job = scope.launch {
             try {
-                queue.withLock { runJob(jobId, printerId, document, options) }
+                inTurn(
+                    lock = queue,
+                    announce = { announceQueued(jobId, printerId, document, options) },
+                    settleIfCancelledEarly = { settleCancelled(jobId, printerId, document, options) },
+                ) { taken -> runJob(jobId, printerId, document, options, taken) }
             } finally {
                 // Runs even on cancellation, so the service always winds down.
                 running.remove(jobId)
+                acceptedJobs.forget(jobId)
                 if (notifiedJobId == jobId) notifiedJobId = null
                 if (inFlight.decrementAndGet() == 0) stopSelf(latestStartId)
             }
@@ -193,17 +201,92 @@ class PrintForegroundService : Service() {
         if (inFlight.get() == 0) stopSelf(latestStartId)
     }
 
-    private suspend fun runJob(
+    /**
+     * Everything needed to run a job again goes in from the start, so a job that
+     * fails half way is as repeatable as one that finishes.
+     */
+    private fun jobRecord(
+        jobId: String,
+        printer: com.gulshan.pocketprint.model.Printer,
+        document: SourceDocument,
+        options: PrintOptions,
+        state: JobState,
+        startedAt: Long,
+        finishedAt: Long? = null,
+        bytesSent: Long = 0,
+        error: String? = null,
+        note: String? = null,
+    ) = PrintJobRecord(
+        id = jobId,
+        printerId = printer.id,
+        printerName = printer.displayName,
+        documentName = document.displayName,
+        state = state,
+        createdAtEpochMs = startedAt,
+        finishedAtEpochMs = finishedAt,
+        bytesSent = bytesSent,
+        error = error,
+        note = note,
+        documentUri = document.uri,
+        documentMimeType = document.mimeType,
+        options = options,
+    )
+
+    /** When the job was accepted, which a QUEUED row and its later rows must agree on. */
+    private val acceptedJobs = AcceptedJobs()
+
+    /**
+     * Puts a job that has to wait for another one into the history now, as
+     * QUEUED. A job that finds the service idle skips this: its SENDING row
+     * follows at once. A printer that no longer exists gets no row here; the job
+     * reports that itself when its turn comes.
+     */
+    private suspend fun announceQueued(
         jobId: String,
         printerId: String,
         document: SourceDocument,
         options: PrintOptions,
     ) {
+        val accepted = acceptedJobs.accept(jobId, queueBusy = queue.isLocked)
+        if (!accepted.showAsQueued) return
+        val printer = ServiceLocator.printerRepository(applicationContext).find(printerId) ?: return
+        ServiceLocator.jobRepository(applicationContext)
+            .upsert(jobRecord(jobId, printer, document, options, JobState.QUEUED, accepted.at))
+    }
+
+    /** A job cancelled before it started: its row, if it has one, says so. */
+    private suspend fun settleCancelled(
+        jobId: String,
+        printerId: String,
+        document: SourceDocument,
+        options: PrintOptions,
+    ) {
+        val printer = ServiceLocator.printerRepository(applicationContext).find(printerId) ?: return
+        val jobs = ServiceLocator.jobRepository(applicationContext)
+        val startedAt = acceptedJobs.startedAt(jobId)
+        jobs.upsert(
+            jobRecord(
+                jobId, printer, document, options, JobState.CANCELLED, startedAt,
+                finishedAt = System.currentTimeMillis(),
+                error = getString(R.string.job_cancelled),
+            ),
+        )
+    }
+
+    private suspend fun runJob(
+        jobId: String,
+        printerId: String,
+        document: SourceDocument,
+        options: PrintOptions,
+        taken: () -> Unit,
+    ) {
         val repository = ServiceLocator.printerRepository(applicationContext)
         val jobs = ServiceLocator.jobRepository(applicationContext)
         val printer = repository.find(printerId)
 
-        val startedAt = System.currentTimeMillis()
+        // The moment the job was accepted, so a row that waited as QUEUED keeps its
+        // place in the list when it starts.
+        val startedAt = acceptedJobs.startedAt(jobId)
         notifiedJobId = jobId
 
         if (printer == null) {
@@ -227,31 +310,21 @@ class PrintForegroundService : Service() {
             return
         }
 
-        // Everything needed to run this again goes in from the start, so a job
-        // that fails half way is as repeatable as one that finishes.
         fun record(
             state: JobState,
             finishedAt: Long? = null,
             bytesSent: Long = 0,
             error: String? = null,
             note: String? = null,
-        ) = PrintJobRecord(
-            id = jobId,
-            printerId = printer.id,
-            printerName = printer.displayName,
-            documentName = document.displayName,
-            state = state,
-            createdAtEpochMs = startedAt,
-            finishedAtEpochMs = finishedAt,
-            bytesSent = bytesSent,
-            error = error,
-            note = note,
-            documentUri = document.uri,
-            documentMimeType = document.mimeType,
-            options = options,
+        ) = jobRecord(
+            jobId, printer, document, options, state, startedAt, finishedAt, bytesSent, error, note,
         )
 
-        jobs.upsert(record(JobState.SENDING))
+        // Not cancellable, so the row is never left half written. A cancel that
+        // lands while it is in flight still stops the job before it starts, and
+        // inTurn then settles the row as cancelled.
+        withContext(NonCancellable) { jobs.upsert(record(JobState.SENDING)) }
+        taken()
 
         // Post before the first byte moves, because opening the connection is
         // itself something that can hang - a Bluetooth printer that is switched

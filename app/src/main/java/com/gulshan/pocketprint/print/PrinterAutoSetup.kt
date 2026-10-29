@@ -271,7 +271,7 @@ class PrinterAutoSetup(private val context: Context) {
         }
     }.flowOn(Dispatchers.IO)
 
-    private data class Detection(val language: PrintLanguage, val model: String?)
+    internal data class Detection(val language: PrintLanguage, val model: String?)
 
     /**
      * Works out which command language the printer is listening in.
@@ -295,7 +295,7 @@ class PrinterAutoSetup(private val context: Context) {
      * A printer that understands nothing here prints a couple of stray
      * characters on one label, which is far cheaper than a mis-detected one.
      */
-    private suspend fun detectLanguage(transport: PrinterTransport): Detection? {
+    internal suspend fun detectLanguage(transport: PrinterTransport): Detection? {
         // Drain anything volunteered on connect so it is not read as a reply.
         runCatching { transport.readAvailable(150) }
 
@@ -367,8 +367,8 @@ class PrinterAutoSetup(private val context: Context) {
     private fun defaultMediaFor(language: PrintLanguage, name: String): MediaSize = when {
         language == PrintLanguage.ESC_POS ->
             if (name.contains("58")) MediaSize.RECEIPT_58 else MediaSize.RECEIPT_80
-        // 4-inch stock is the common case for TSPL and ZPL desktop units.
-        else -> MediaSize.LABEL_4X6
+        // Same assumption the setup screen starts its stock picker on.
+        else -> MediaSize.DEFAULT_LABEL
     }
 
     // The whole catalogue, not a hand-picked three. These become the printer's
@@ -382,40 +382,57 @@ class PrinterAutoSetup(private val context: Context) {
         language: PrintLanguage,
         media: MediaSize,
         widthDots: Int,
-    ): ByteArray = when (language) {
-        PrintLanguage.TSPL -> Tspl(media, ASSUMED_DPI).apply {
-            setup()
-            text(20, 20, "POCKETPRINT READY", font = "3")
-            text(20, 70, printer.displayName.take(28), font = "2")
-            text(20, 105, "TSPL  " + media.label, font = "2")
-            barcode(20, 145, "POCKETPRINT", height = 60)
-            print(sets = 1, copies = 1)
-        }.build()
+    ): ByteArray = setupTestLabel(printer, language, media, widthDots, ASSUMED_DPI)
+}
 
-        PrintLanguage.ZPL -> Zpl(media, ASSUMED_DPI).apply {
-            start()
-            text(20, 20, "POCKETPRINT READY", height = 36, width = 36)
-            text(20, 70, printer.displayName.take(28), height = 26, width = 26)
-            text(20, 105, "ZPL  " + media.label, height = 26, width = 26)
-            barcode128(20, 150, "POCKETPRINT", height = 70)
-            end(copies = 1)
-        }.build()
+/**
+ * The label setup prints to show the printer is working.
+ *
+ * It is sent with the printer's own [Printer.stock]. A printer keeps what a job
+ * tells it, so a test label that always said "look for a gap" put a printer
+ * loaded with continuous paper into gap sensing - and the next job, however
+ * correct, found it hunting for a gap that is not on the roll and stopped with a
+ * paper fault.
+ */
+internal fun setupTestLabel(
+    printer: Printer,
+    language: PrintLanguage,
+    media: MediaSize,
+    widthDots: Int,
+    dpi: Int,
+): ByteArray = when (language) {
+    PrintLanguage.TSPL -> Tspl(media, dpi).apply {
+        setup(printer.stock)
+        text(20, 20, "POCKETPRINT READY", font = "3")
+        text(20, 70, printer.displayName.take(28), font = "2")
+        text(20, 105, "TSPL  " + media.label, font = "2")
+        barcode(20, 145, "POCKETPRINT", height = 60)
+        print(sets = 1, copies = 1)
+    }.build()
 
-        else -> EscPos(widthDots).apply {
-            initialize()
-            align(EscPos.Align.CENTER)
-            textSize(2, 2)
-            bold(true)
-            line("POCKETPRINT")
-            bold(false)
-            textSize(1, 1)
-            line("Ready")
-            line(printer.displayName.take(30))
-            separator('-', 32)
-            barcode128("POCKETPRINT")
-            cut()
-        }.build()
-    }
+    PrintLanguage.ZPL -> Zpl(media, dpi).apply {
+        start(printer.stock)
+        text(20, 20, "POCKETPRINT READY", height = 36, width = 36)
+        text(20, 70, printer.displayName.take(28), height = 26, width = 26)
+        text(20, 105, "ZPL  " + media.label, height = 26, width = 26)
+        barcode128(20, 150, "POCKETPRINT", height = 70)
+        end(copies = 1)
+    }.build()
+
+    else -> EscPos(widthDots).apply {
+        initialize()
+        align(EscPos.Align.CENTER)
+        textSize(2, 2)
+        bold(true)
+        line("POCKETPRINT")
+        bold(false)
+        textSize(1, 1)
+        line("Ready")
+        line(printer.displayName.take(30))
+        separator('-', 32)
+        barcode128("POCKETPRINT")
+        cut()
+    }.build()
 }
 
 /** Auto-setup only makes sense for the Bluetooth thermal printers. */

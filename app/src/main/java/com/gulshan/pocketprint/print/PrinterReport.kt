@@ -6,6 +6,7 @@ import com.gulshan.pocketprint.model.PrintJobRecord
 import com.gulshan.pocketprint.model.Printer
 import com.gulshan.pocketprint.model.PrinterAddress
 import com.gulshan.pocketprint.permissions.AppHealth
+import com.gulshan.pocketprint.transport.TscSdk
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -41,6 +42,12 @@ object PrinterReport {
         printer: Printer,
         jobs: List<PrintJobRecord>,
         health: Health? = null,
+        /**
+         * Whether this build contains TSC's library (docs/TSC_SDK.md). It is optional
+         * and supplied by whoever builds the app, so two APKs of the same version can
+         * differ by it - and a report is where that difference needs to be visible.
+         */
+        tscLibraryBundled: Boolean = TscSdk.isBundled,
     ): String {
         val stamp = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(Date())
         val clock = SimpleDateFormat("HH:mm", Locale.US)
@@ -58,7 +65,8 @@ object PrinterReport {
             appendLine()
 
             appendLine("App        ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE}), " +
-                "${BuildConfig.BUILD_TYPE} build")
+                "${BuildConfig.BUILD_TYPE} build, " +
+                if (tscLibraryBundled) "includes TSC's library" else "without TSC's library")
             appendLine("Device     ${Build.MANUFACTURER} ${Build.MODEL}, " +
                 "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
             health?.let {

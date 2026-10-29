@@ -1,6 +1,7 @@
 uses-permission: name='android.permission.ACCESS_LOCAL_NETWORK'
 uses-permission: name='android.permission.ACCESS_NETWORK_STATE'
 uses-permission: name='android.permission.BLUETOOTH' maxSdkVersion='30'
+uses-permission: name='android.permission.BLUETOOTH_ADMIN' maxSdkVersion='30'
 uses-permission: name='android.permission.BLUETOOTH_CONNECT'
 uses-permission: name='android.permission.CHANGE_WIFI_MULTICAST_STATE'
 uses-permission: name='android.permission.FOREGROUND_SERVICE'

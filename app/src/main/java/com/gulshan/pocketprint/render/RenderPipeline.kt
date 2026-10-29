@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.net.Uri
 import com.gulshan.pocketprint.label.EscPos
+import com.gulshan.pocketprint.label.MonoPage
 import com.gulshan.pocketprint.label.Tspl
 import com.gulshan.pocketprint.label.Zpl
 import com.gulshan.pocketprint.model.MediaSize
@@ -265,9 +266,7 @@ class RenderPipeline(
             PdfRasterizer.forEachPage(
                 pdf.file, dpi = dpi, targetWidthPx = width, pageRange = options.pageRange,
             ) { _, bitmap ->
-                val builder = EscPos(width).initialize()
-                    .image(bitmap, dither = options.dither).cut()
-                buffer.write(builder.build())
+                buffer.write(escPosPage(width, dpi, EscPos.pack(bitmap, width, options.dither)))
                 pages++
             }
         }
@@ -289,13 +288,12 @@ class RenderPipeline(
         PdfRasterizer.forEachPage(
             pdf.file, dpi = dpi, targetWidthPx = width, pageRange = options.pageRange,
         ) { _, bitmap ->
-            val builder = Tspl(media, dpi)
-                // From the printer, not the job: this describes the roll that
-                // is physically loaded and how hard the head has to burn for
-                // it, neither of which changes with the document.
-                .setup(printer.stock)
-                .image(0, 0, bitmap, dither = options.dither)
-            builder.print(sets = 1, copies = options.copies.coerceAtLeast(1))
+            val builder = Tspl(media, dpi, printer.capabilities.compressedBitmaps)
+            val packed = builder.pack(bitmap, dither = options.dither)
+            // The stock is the printer's, not the job's: it describes the roll
+            // that is physically loaded and how hard the head has to burn for
+            // it, neither of which changes with the document.
+            builder.page(printer.stock, packed, sets = 1, copies = options.copies.coerceAtLeast(1))
             buffer.write(builder.build())
             pages++
         }
@@ -369,3 +367,12 @@ class RenderPipeline(
 fun RenderedDocument.cleanupIfTemporary() {
     if (temporary) runCatching { file.delete() }
 }
+
+/**
+ * One receipt page as the printer is sent it: reset, the picture with its blank
+ * bands fed over rather than sent, and the cut. [dpi] is the head's resolution,
+ * which is what turns the skipping on; leave it out and every band goes over
+ * the wire again, so this is where that is pinned.
+ */
+internal fun escPosPage(width: Int, dpi: Int, page: MonoPage): ByteArray =
+    EscPos(width).initialize().image(page, skipBlankDpi = dpi).cut().build()

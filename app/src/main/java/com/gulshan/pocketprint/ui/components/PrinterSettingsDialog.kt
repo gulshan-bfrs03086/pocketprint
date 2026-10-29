@@ -12,6 +12,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.Switch
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -24,6 +25,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.gulshan.pocketprint.R
+import com.gulshan.pocketprint.model.BtLink
 import com.gulshan.pocketprint.model.LabelStock
 import com.gulshan.pocketprint.model.MediaSensing
 import com.gulshan.pocketprint.model.MediaSize
@@ -33,6 +35,8 @@ import com.gulshan.pocketprint.ui.MediaSizeSaver
 import com.gulshan.pocketprint.ui.enumSaver
 import com.gulshan.pocketprint.ipp.PrinterTrust
 import com.gulshan.pocketprint.model.PrinterAddress
+import com.gulshan.pocketprint.model.linkAfterSettings
+import com.gulshan.pocketprint.transport.TscSdk
 
 /**
  * Lets the user correct what the app guessed about a printer.
@@ -70,6 +74,9 @@ fun PrinterSettingsDialog(
         mutableStateOf((printer.capabilities.rasterWidthDots ?: 576).toString())
     }
     var exposeToSystem by rememberSaveable { mutableStateOf(printer.exposeToSystem) }
+    val bluetoothAddress = printer.address as? PrinterAddress.Bluetooth
+    var viaTscLibrary by rememberSaveable { mutableStateOf(bluetoothAddress?.link == BtLink.TSC_SDK) }
+    var compressedBitmaps by rememberSaveable { mutableStateOf(printer.capabilities.compressedBitmaps) }
 
     // Sizes the user has typed in, kept alongside the built-in list. 50x30 and
     // 60x40 are two of the most common rolls on the market and neither is one
@@ -86,21 +93,31 @@ fun PrinterSettingsDialog(
     var gapMm by rememberSaveable { mutableStateOf(printer.stock.gapMm.toString()) }
     var darkness by rememberSaveable { mutableStateOf(printer.stock.darkness) }
     var speed by rememberSaveable { mutableStateOf(printer.stock.speedIps) }
+    var trimBlank by rememberSaveable { mutableStateOf(printer.stock.trimBlank) }
 
     val isLabelPrinter = language == PrintLanguage.TSPL || language == PrintLanguage.ZPL
     val sizes = (MediaSize.ALL + extraSizes).distinctBy { it.id }
 
-    fun stock() = LabelStock(
+    // A copy, not a new LabelStock: a setting this dialog does not know about
+    // would otherwise be put back to its default every time it is saved.
+    fun stock() = printer.stock.copy(
         sensing = sensing,
         gapMm = gapMm.toFloatOrNull()?.coerceIn(0f, 50f) ?: printer.stock.gapMm,
-        offsetMm = printer.stock.offsetMm,
         darkness = darkness,
         speedIps = speed,
+        trimBlank = trimBlank,
     )
 
     fun edited(): Printer = printer.copy(
         displayName = name.ifBlank { printer.displayName },
         exposeToSystem = exposeToSystem,
+        address = if (bluetoothAddress == null) {
+            printer.address
+        } else {
+            bluetoothAddress.copy(
+                link = linkAfterSettings(bluetoothAddress.link, viaTscLibrary, TscSdk.isBundled),
+            )
+        },
         stock = stock(),
         capabilities = printer.capabilities.copy(
             languages = listOf(language),
@@ -108,6 +125,9 @@ fun PrinterSettingsDialog(
                 .distinctBy { it.id },
             resolutionsDpi = listOf(dpi),
             rasterWidthDots = widthDots.toIntOrNull()?.takeIf { it > 0 },
+            // Only meaningful for TSPL; cleared when the language is changed
+            // away from it so it cannot come back on by surprise.
+            compressedBitmaps = compressedBitmaps && language == PrintLanguage.TSPL,
         ),
     )
 
@@ -248,6 +268,72 @@ fun PrinterSettingsDialog(
                     )
 
                     Stepper(stringResource(R.string.printer_speed), speed, 1..12) { speed = it }
+
+                    // Trimming is done for TSPL only, and only continuous paper
+                    // can be trimmed: gap and black-mark rolls are cut to a label.
+                    if (language == PrintLanguage.TSPL && sensing == MediaSensing.CONTINUOUS) {
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            Text(
+                                stringResource(R.string.printer_trim_blank),
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Switch(checked = trimBlank, onCheckedChange = { trimBlank = it })
+                        }
+                        Text(
+                            stringResource(R.string.printer_trim_blank_help),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+
+                    if (language == PrintLanguage.TSPL) {
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            Text(
+                                stringResource(R.string.printer_compress_bitmaps),
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Switch(checked = compressedBitmaps, onCheckedChange = { compressedBitmaps = it })
+                        }
+                        Text(
+                            stringResource(R.string.printer_compress_bitmaps_help),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+
+                        // Offered by a build that has the library, and also to a printer
+                        // already saved on it in one that does not, so it can be freed.
+                        if (bluetoothAddress != null &&
+                            (TscSdk.isBundled || bluetoothAddress.link == BtLink.TSC_SDK)
+                        ) {
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                Text(
+                                    stringResource(R.string.printer_tsc_library),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                Switch(checked = viaTscLibrary, onCheckedChange = { viaTscLibrary = it })
+                            }
+                            Text(
+                                stringResource(R.string.printer_tsc_library_help),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
 
                     TextButton(onClick = { onCalibrate(edited()) }) {
                         Text(stringResource(R.string.printer_calibrate))
