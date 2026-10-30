@@ -337,6 +337,10 @@ the Settings switch does. The fifteen seconds matter: Android only tells the pri
 change about ten seconds later, so a quicker off-and-on changes nothing, which is why an earlier
 attempt at this appeared not to help. PocketPrint is missing from print dialogs for those seconds.
 
+An app that prints through PocketPrint can take it out of the stopped state before it opens the
+dialog, by starting `WakeActivity` by name. See [docs/WAKE_FROM_PRINT.md](docs/WAKE_FROM_PRINT.md)
+for the flow, what it deliberately skips, and how it is tested.
+
 PocketPrint asks for nothing on first launch. Each permission is requested at the moment it is
 needed: Bluetooth when you set up a printer, notifications when you print. If one has been
 refused to the point where Android stops asking, the app says so and offers the way back.
