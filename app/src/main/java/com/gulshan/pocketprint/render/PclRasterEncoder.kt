@@ -29,6 +29,16 @@ object PclRasterEncoder {
         else -> 26
     }
 
+    fun testPage(media: MediaSize): ByteArray = buildString {
+        append("\u001BE")
+        append("\u001B&l${paperCode(media)}A")
+        append("\u001B&l0O\u001B&l0E\u001B*p180x180Y")
+        append("POCKETPRINT\r\nPCL test page\r\n")
+        append("If this is readable, the command language is correct.\r\n")
+        append('\u000C')
+        append("\u001BE")
+    }.toByteArray(Charsets.US_ASCII)
+
     suspend fun fromPdf(
         context: Context,
         pdf: File,
