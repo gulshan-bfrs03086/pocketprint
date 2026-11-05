@@ -81,6 +81,8 @@ object IppStatus {
      */
     const val CLIENT_ERROR_NOT_FOUND = 0x0406
 
+    const val SERVER_ERROR_VERSION_NOT_SUPPORTED = 0x0503
+
     fun isSuccess(code: Int) = code in 0x0000..0x00FF
 
     fun describe(code: Int): String = when (code) {
@@ -109,7 +111,7 @@ object IppStatus {
         0x0500 -> "server-error-internal-error"
         0x0501 -> "server-error-operation-not-supported"
         0x0502 -> "server-error-service-unavailable"
-        0x0503 -> "server-error-version-not-supported"
+        SERVER_ERROR_VERSION_NOT_SUPPORTED -> "server-error-version-not-supported"
         0x0504 -> "server-error-device-error"
         0x0505 -> "server-error-temporary-error"
         0x0506 -> "server-error-not-accepting-jobs"

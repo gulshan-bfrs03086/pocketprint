@@ -37,6 +37,7 @@ import com.gulshan.pocketprint.print.PrinterReport
 import com.gulshan.pocketprint.print.SetupProgress
 import com.gulshan.pocketprint.print.TestLabelOutcome
 import com.gulshan.pocketprint.render.Spool
+import com.gulshan.pocketprint.render.PclRasterEncoder
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -367,6 +368,8 @@ class PrintersViewModel(app: Application) : AndroidViewModel(app) {
         val language = caps.languages.firstOrNull() ?: PrintLanguage.ESC_POS
 
         val bytes = when (language) {
+            PrintLanguage.PCL -> PclRasterEncoder.testPage(media)
+
             PrintLanguage.TSPL -> Tspl.testPage(
                 media, dpi, width, caps.compressedBitmaps, printer.stock,
                 onNoRoomForPicture = {

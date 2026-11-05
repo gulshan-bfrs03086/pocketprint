@@ -37,6 +37,9 @@ class IppClient(
 ) {
     private val requestIds = AtomicInteger(1)
 
+    private data class Version(val major: Int, val minor: Int)
+    private val versions = java.util.concurrent.ConcurrentHashMap<String, Version>()
+
     @Volatile private var boundNetwork: android.net.Network? = null
     @Volatile private var boundClient: OkHttpClient? = null
 
@@ -269,8 +272,45 @@ class IppClient(
         openDocument: (() -> InputStream)?,
         documentLength: Long,
     ): IppResponse {
+        val supported = listOf(Version(2, 0), Version(1, 1), Version(1, 0))
+        var version = versions[address.httpUrl] ?: supported.first()
+        val attempted = mutableSetOf<Version>()
+
+        while (true) {
+            attempted += version
+            val versionedHeader = header.copyOf().apply {
+                this[0] = version.major.toByte()
+                this[1] = version.minor.toByte()
+            }
+            val response = executeOnce(address, versionedHeader, openDocument, documentLength)
+            if (response.statusCode != IppStatus.SERVER_ERROR_VERSION_NOT_SUPPORTED) {
+                if (response.isSuccess) versions[address.httpUrl] = version
+                return response
+            }
+
+            // RFC 8011 section 4.1.8: only an explicit version rejection allows
+            // another attempt. Never resubmit a job after an ambiguous I/O
+            // failure or any other status. The response header names the
+            // printer's closest version; some older firmware just echoes ours.
+            val suggested = Version(response.versionMajor, response.versionMinor)
+            version = suggested.takeIf { it in supported && it !in attempted }
+                ?: supported.firstOrNull { it !in attempted }
+                ?: return response
+        }
+    }
+
+    private fun executeOnce(
+        address: PrinterAddress.Ipp,
+        header: ByteArray,
+        openDocument: (() -> InputStream)?,
+        documentLength: Long,
+    ): IppResponse {
         val body = object : RequestBody() {
             override fun contentType() = IPP_MEDIA
+
+            // A lost HTTP response does not mean the printer rejected the job.
+            // Explicit version fallback above creates a fresh body instead.
+            override fun isOneShot() = openDocument != null
 
             override fun contentLength(): Long =
                 if (openDocument == null) header.size.toLong()
